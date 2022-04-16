@@ -1,0 +1,14 @@
+Requirements for LibPack for FreeCAD 0.20:
+
+- at least the library version of this LibPack:
+https://github.com/FreeCAD/FreeCAD-LibPack/releases/tag/1.0
+
+- Python 3.8x, not newer to support Windows 7
+
+- VTK 8.x, not 9.x because there are known bugs in VTK
+
+- Qt 5.15.3
+
+- OpenCADSCADE 7.6.0 or newer including the blobfish patches:
+  https://gitlab.com/blobfish/occt
+  (fixes several fillet crash bugs FreeCAD was suffering from)
