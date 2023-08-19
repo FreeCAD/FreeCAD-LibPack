@@ -3,11 +3,6 @@
     "LibPack-version":"3.0.0",
     "content": [
         {
-            "name":"python",
-            "git-repo":"https://github.com/python/cpython",
-            "git-ref":"v3.11.4"
-        },
-        {
             "name":"qt",
             "install-directory":"C:\\Qt\\6.5.2\\msvc2019_64"
         },

@@ -178,7 +178,7 @@ if __name__ == "__main__":
 
     compiler = compile_all.Compiler(
         config,
-        compile_all.build_mode.RELEASE,
+        compile_all.BuildMode.RELEASE,
         bison_path=path_to_bison,
         skip_existing=args["skip_existing_build"],
     )

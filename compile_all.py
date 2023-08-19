@@ -13,32 +13,35 @@ import subprocess
 import sys
 
 
-class build_mode(Enum):
+class BuildMode(Enum):
     DEBUG = 1
     RELEASE = 2
 
     def __str__(self) -> str:
-        if self == build_mode.DEBUG:
+        if self == BuildMode.DEBUG:
             return "Debug"
-        elif self == build_mode.RELEASE:
+        elif self == BuildMode.RELEASE:
             return "Release"
         else:
             return "Unknown"
 
 
 class Compiler:
-    def __init__(self, config, mode, bison_path, skip_existing:bool=False):
+    def __init__(self, config, mode, bison_path, skip_existing: bool = False):
         self.config = config
         self.mode = mode
         self.bison_path = bison_path
         self.base_dir = os.getcwd()
         self.skip_existing = skip_existing
+        libpack_dir = "LibPack-{}-v{}-{}".format(
+            config["FreeCAD-version"],
+            config["LibPack-version"],
+            str(mode),
+        )
+        self.install_dir = os.path.join(os.getcwd(), libpack_dir)
 
     def compile_all(self):
-        content = self.config["content"]
-        libpack_dir = self.create_libpack_dir()
-        self.install_dir = os.path.join(os.getcwd(), libpack_dir)
-        for item in content:
+        for item in self.config["content"]:
             # All build methods are named using "build_XXX" where XXX is the name of the package in the config file
             print(f"Building {item['name']} in {self.mode} mode")
             os.chdir(item["name"])
@@ -47,40 +50,16 @@ class Compiler:
             build_function(item)
             os.chdir(self.base_dir)
 
-    def create_libpack_dir(self) -> str:
-        """Create a new directory for this LibPack compilation, using the version of FreeCAD, the version of
-        the LibPack, and whether it's in release or debug mode. Returns the name of the created directory.
-        """
-
-        dirname = "LibPack-{}-v{}-{}".format(
-            self.config["FreeCAD-version"],
-            self.config["LibPack-version"],
-            str(self.mode),
-        )
-        if os.path.exists(dirname) and not self.skip_existing:
-            backup_name = dirname + "-backup-" + "a"
-            while os.path.exists(backup_name):
-                if backup_name[-1] == "z":
-                    print(
-                        "You have too many old LibPack backup directories. Please delete some of them."
-                    )
-                    exit(1)
-                backup_name = backup_name[:-1] + chr(ord(backup_name[-1]) + 1)
-
-            os.rename(dirname, backup_name)
-        if not os.path.exists(dirname):
-            os.mkdir(dirname)
-        return dirname
-
-    def build_nonexistent(self, options=None):
+    def build_nonexistent(self, _=None):
         """Used for automated testing to allow easy Mock injection"""
 
-    def build_python(self, options=None):
+    def build_python(self, _=None):
+        """ NOTE: This doesn't install correctly, so should not be used at this time... install Python manually """
         if sys.platform.startswith("win32"):
-            if self.skip_existing:
-                if os.path.exists(os.path.join(self.install_dir,"bin","python.exe")):
-                    print("Skipping existing Python")
-                    return
+            expected_exe_path = os.path.join(self.install_dir, "bin", "python.exe")
+            if self.skip_existing and os.path.exists(expected_exe_path):
+                print("Not rebuilding, instead just using existing Python in the LibPack installation path")
+                return
             try:
                 arch = "x64" if platform.machine() == "AMD64" else "ARM64"
                 path = "amd64" if platform.machine() == "AMD64" else "arm64"
@@ -97,32 +76,72 @@ class Compiler:
                 )
             except subprocess.CalledProcessError as e:
                 print("Python build failed")
-                print(e.output)
+                print(e.output.decode("utf-8"))
                 exit(e.returncode)
             bin_dir = os.path.join(self.install_dir, "bin")
+            lib_dir = os.path.join(bin_dir, "Lib")
+            inc_dir = os.path.join(bin_dir, "Include")
+            os.makedirs(bin_dir, exist_ok=True)
+            os.makedirs(lib_dir, exist_ok=True)
             os.makedirs(bin_dir, exist_ok=True)
             shutil.copytree(f"PCBuild\\{path}", bin_dir, dirs_exist_ok=True)
+            shutil.copytree(f"Lib", lib_dir, dirs_exist_ok=True)
+            shutil.copytree(f"Include", inc_dir, dirs_exist_ok=True)
         else:
             raise NotImplemented(
-                "Non-windows compilation of Python is not implemented yet"
+                "Non-Windows compilation of Python is not implemented yet"
             )
 
-    def build_qt(self, options:dict):
+    def get_python_version(self) -> str:
+        path_to_python = os.path.join(self.install_dir, "bin", "python")
+        if sys.platform.startswith("win32"):
+            path_to_python += ".exe"
+        try:
+            result = subprocess.run([path_to_python, "--version"], capture_output=True, check=True)
+            _, _, version_number = result.stdout.decode("utf-8").strip().partition(" ")
+            components = version_number.split(".")
+            python_version = f"{components[0]}.{components[1]}"
+            return python_version
+        except subprocess.CalledProcessError as e:
+            print("ERROR: Failed to run LibPack's Python executable")
+            print(e.output.decode("utf-8"))
+            exit(1)
+
+    def build_qt(self, options: dict):
         """Doesn't really "build" Qt, just copies the pre-compiled libraries from the configured path"""
         qt_dir = options["install-directory"]
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir,"metatypes")):
-                print("Skipping existing Qt")
+            if os.path.exists(os.path.join(self.install_dir, "metatypes")):
+                print("Not re-copying, instead just using existing Qt in the LibPack installation path")
                 return
         if not os.path.exists(qt_dir):
             print(f"Error: specified Qt installation path does not exist ({qt_dir})")
             exit(1)
         shutil.copytree(qt_dir, self.install_dir, dirs_exist_ok=True)
 
-    def build_boost(self, options:dict=None):
+    def build_boost(self, _=None):
         """ Builds boost shared libraries and installs libraries and headers """
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir,"include","boost")):
-                print("Skipping existing boost")
+            if os.path.exists(os.path.join(self.install_dir, "include", "boost")):
+                print("Not rebuilding boost, it is already in the LibPack")
                 return
-        # Boost uses a custom build system and needs a config file
+        # Boost uses a custom build system and needs a config file to find our Python
+        with open(os.path.join("tools", "build", "src", "user-config.jam"), "w", encoding="utf-8") as user_config:
+            exe = os.path.join(self.install_dir, "bin", "python")
+            if sys.platform.startswith("win32"):
+                exe += ".exe"
+            inc_dir = os.path.join(self.install_dir, "bin", "Include")
+            lib_dir = os.path.join(self.install_dir, "bin", "Lib")
+            python_version = self.get_python_version()
+            print(f"Building boost-python with Python {python_version}")
+            user_config.write(f'using python : {python_version} : "{exe}" : "{inc_dir}" : "{lib_dir}"  ;\n')
+        try:
+            subprocess.run(["bootstrap.bat"], capture_output=True, check=True)
+            subprocess.run(["b2", f"variant={str(self.mode).lower()}"], check=True, capture_output=True)
+            shutil.copytree(os.path.join("stage", "lib"), os.path.join(self.install_dir, "lib"), dirs_exist_ok=True)
+            shutil.copytree("boost", os.path.join(self.install_dir, "include", "boost"),
+                            dirs_exist_ok=True)
+        except subprocess.CalledProcessError as e:
+            print("Error: failed to build boost")
+            print(e.output.decode("utf-8"))
+            exit(e.returncode)
