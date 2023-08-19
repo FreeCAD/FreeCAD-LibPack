@@ -76,6 +76,9 @@ def fetch_remote_data(config: dict, skip_existing: bool = False):
             exit()
         elif "url" in item:
             download(item["name"], item["url"])
+        else:
+            # Just make the directory, presumably later code will know what to do
+            os.makedirs(item["name"], exist_ok=True)
 
 
 def clone(name: str, url: str, ref: str = None):
@@ -91,7 +94,7 @@ def clone(name: str, url: str, ref: str = None):
         args.extend(["--depth", "1", "--recurse-submodules", url, name])
         subprocess.run(args, capture_output=True, check=True)
     except subprocess.CalledProcessError as e:
-        print("ERROR: failed to clone git repo {url} at ref {ref}")
+        print(f"ERROR: failed to clone git repo {url} at ref {ref}")
         print(e.output)
         exit(e.returncode)
 
@@ -172,6 +175,14 @@ if __name__ == "__main__":
     os.chdir(args["working"])
 
     fetch_remote_data(config, args["skip_existing_clone"])
+
+    compiler = compile_all.Compiler(
+        config,
+        compile_all.build_mode.RELEASE,
+        bison_path=path_to_bison,
+        skip_existing=args["skip_existing_build"],
+    )
+    compiler.compile_all()
 
 
 # Preliminary setup that will be needed for running CMake
