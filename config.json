@@ -1,7 +1,7 @@
 {
     "FreeCAD-version":"0.22",
     "LibPack-version":"3.0.0",
-    "contents": [
+    "content": [
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython",
@@ -27,8 +27,14 @@
             "git-ref":"master"
         },
         {
+            "name":"pcre2",
+            "git-repo":"https://github.com/PCRE2Project/pcre2",
+            "git-ref":"pcre2-10.42"
+        },
+        {
             "name":"swig",
-            "url":"http://prdownloads.sourceforge.net/swig/swigwin-4.1.1.zip"
+            "git-repo":"https://github.com/swig/swig.git",
+            "git-tag":"v4.1.1"
         },
         {
             "name":"pivy",
@@ -100,7 +106,7 @@
         },
         {
             "name":"medfile",
-            "url":"http://files.salome-platform.org/Salome/other/med-4.1.1.tar.gz"
+            "git-repo":"https://github.com/FedoraScientific/salome-med"
         },
         {
             "name":"gmsh",
