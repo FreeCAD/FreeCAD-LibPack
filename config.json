@@ -19,7 +19,8 @@
         {
             "name":"quarter",
             "git-repo":"https://github.com/coin3d/quarter",
-            "git-ref":"master"
+            "git-ref":"master",
+            "patches":["patches/quarter-01-add-QOpenGLContext-to-QuarterWidgetP.patch"]
         },
         {
             "name":"pcre2",

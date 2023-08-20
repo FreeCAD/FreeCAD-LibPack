@@ -10,6 +10,7 @@
 #   * 7z (see https://www.7-zip.org)
 #   * Some version of Python that can run this file
 #   * The "requests" Python package (e.g. 'pip install requests')
+#   * The "diff-match-patch" Python package (e.g. 'pip install diff-match-patch')
 #   * Qt - the base installation plus Qt Image Formats, Qt Webengine, Qt Webview, and Qt PDF
 #   * GNU Bison (for Windows see https://github.com/lexxmark/winflexbison/)
 
