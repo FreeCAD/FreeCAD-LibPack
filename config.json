@@ -23,6 +23,16 @@
             "patches":["patches/quarter-01-add-QOpenGLContext-to-QuarterWidgetP.patch"]
         },
         {
+            "name":"zlib",
+            "git-repo":"https://github.com/madler/zlib",
+            "git-ref":"v1.3"
+        },
+        {
+            "name":"bzip2",
+            "git-repo":"https://gitlab.com/bzip2/bzip2.git",
+            "git-ref":"bzip2-1.0.8"
+        },
+        {
             "name":"pcre2",
             "git-repo":"https://github.com/PCRE2Project/pcre2",
             "git-ref":"pcre2-10.42"
@@ -56,19 +66,9 @@
             "git-ref":"8.1.1"
         },
         {
-            "name":"zlib",
-            "git-repo":"https://github.com/intel/zlib",
-            "git-ref":"v1.2.13_jtk"
-        },
-        {
             "name":"libpng",
             "git-repo":"https://github.com/glennrp/libpng",
             "git-ref":"v1.6.40"
-        },
-        {
-            "name":"bzip2",
-            "git-repo":"https://gitlab.com/bzip2/bzip2.git",
-            "git-ref":"bzip2-1.0.8"
         },
         {
             "name":"freetype",

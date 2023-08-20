@@ -92,6 +92,7 @@ class Compiler:
             str(mode),
         )
         self.install_dir = os.path.join(os.getcwd(), libpack_dir)
+        self.init_script = None
 
     def get_cmake_options(self) -> list[str]:
         """ Get a comprehensive list of cMake options that can be used in any cMake build. Not all options apply
@@ -100,6 +101,7 @@ class Compiler:
             f"-DBUILD_TESTS=No",
             f"-DBUILD_EXAMPLES=No",
             f"-DBUILD_DOCS=No",
+            f"-DBUILD_SHARED=Yes",
             f"-DCMAKE_INSTALL_PATH={self.install_dir}",
             f"-DCMAKE_INSTALL_PREFIX={self.install_dir}",
             f"-DPython_ROOT_DIR={self.install_dir}/bin",
@@ -108,13 +110,14 @@ class Compiler:
             f"-DQt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-DCoin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1",
             f"-DSWIG_EXECUTABLE={self.install_dir}/bin/swig" + ".exe" if sys.platform.startswith("win32") else "",
-            f"-DSWIG_DIR={self.install_dir}/bin/swig/Lib",
             f"-DZLIB_INCLUDE_DIR={self.install_dir}/include",
             f"-DZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib." + "lib" if sys.platform.startswith("win32") else "a",
             f"-DHarfBuzz_DIR={self.install_dir}/lib/cmake/",
             f"-DZLIB_DIR={self.install_dir}/lib/cmake/",
             f"-DBZIP2_DIR={self.install_dir}/lib/cmake/",
-            f"-DCMAKE_CXX_FLAGS=-I{self.install_dir}/include"
+            f"-DPCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib",
+            f"-DCMAKE_CXX_FLAGS=-I{self.install_dir}/include",
+            f"-DBISON_EXECUTABLE={self.bison_path}"
         ]
 
     def compile_all(self):
@@ -253,6 +256,56 @@ class Compiler:
                 return
         self._build_standard_cmake()
 
-    def build_quarter(self, options=None):
+    def build_quarter(self, _=None):
         """ Builds and installs Quarter using standard CMake settings """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "Quarter")):
+                print("Not rebuilding Coin, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_zlib(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "zlib.h")):
+                print("Not rebuilding zlib, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_bzip2(self, _= None):
+        """ The version of BZip2 in widespread use (1.0.8, the most recent official release) do not yet use cMake """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
+                print("Not rebuilding zlib, it is already in the LibPack")
+                return
+        if sys.platform.startswith("win32"):
+            args = [self.init_script, "&", "nmake","/f", "makefile.msc"]
+            try:
+                subprocess.run(args, check=True, capture_output=True)
+                shutil.copyfile("libbz2.lib",os.path.join(self.install_dir, "lib", "libbz2.lib"))
+                shutil.copyfile("bzlib.h",os.path.join(self.install_dir, "include", "bzlib.h"))
+                shutil.copyfile("bzlib_private.h",os.path.join(self.install_dir, "include", "bzlib_private.h"))
+            except subprocess.CalledProcessError as e:
+                print("ERROR: Failed to build bzip2 using nmake")
+                print(e.output.decode("utf-8"))
+                exit(1)
+        else:
+            raise NotImplemented(
+                "Non-Windows compilation of bzip2 is not implemented yet"
+            )
+
+    def build_pcre2(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "pcre2.h")):
+                print("Not rebuilding pcre2, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_swig(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "bin", "swig") + ".exe" if sys.platform.startswith("win32") else ""):
+                print("Not rebuilding SWIG, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_pivy(self, _=None):
         self._build_standard_cmake()
