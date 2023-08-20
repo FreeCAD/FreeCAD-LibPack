@@ -32,6 +32,8 @@ def usage():
     print("Usage: python bootstrap.py [config_file] [release|debug]")
     print()
     print('Result: A new working/LibPack-XX-YY-MM directory has been created')
+
+def print_next_step():
     print('Next step: install Python into working/LibPack-XX-YY-MM/bin, then run:')
     print('  .\\working\\LibPack-XX-YY-MM\\bin\\python create_libpack.py')
     print('(where XX, YY, and MM change according to the config and inputs)')
@@ -60,6 +62,9 @@ def create_libpack_dir(config: dict, mode: BuildMode) -> str:
         os.rename(dirname, backup_name)
     if not os.path.exists(dirname):
         os.mkdir(dirname)
+    dirname = os.pawth.join(dirname, "bin")
+    if not os.path.exists(dirname):
+        os.mkdir(dirname)
     return dirname
 
 
@@ -67,7 +72,8 @@ if __name__ == "__main__":
     args = parse_args()
     with open(args["config_file"], "r", encoding="utf-8") as f:
         config_data = f.read()
-    config_dict = json.load(config_data)
+    config_dict = json.loads(config_data)
     os.makedirs("working", exist_ok=True)
     os.chdir("working")
     create_libpack_dir(config_dict, args["mode"])
+    print_next_step()

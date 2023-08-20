@@ -170,10 +170,8 @@ if __name__ == "__main__":
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
-    if not args["skip_existing_clone"]:
-        delete_existing(args["working"], silent=args["silent"])
-
-    os.makedirs(args["working"], exist_ok=True)
+    if not os.path.exists(os.path.join("working","bin")):
+        print("ERROR: ")
     os.chdir(args["working"])
 
     fetch_remote_data(config, args["skip_existing_clone"])

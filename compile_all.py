@@ -103,11 +103,14 @@ class Compiler:
             f"-DBUILD_EXAMPLES=No",
             f"-DBUILD_DOCS=No",
             f"-DBUILD_SHARED=Yes",
+            f"-DBUILD_SHARED_LIB=Yes",
+            f"-DBUILD_SHARED_LIBS=Yes",
             f"-DCMAKE_INSTALL_PATH={self.install_dir}",
             f"-DCMAKE_INSTALL_PREFIX={self.install_dir}",
             f"-DPython_ROOT_DIR={self.install_dir}/bin",
             f"-DBOOST_ROOT={self.install_dir}",
-            f"-DBOOST_INCLUDE_DIR={self.install_dir}/include",
+            f"-DBoost_INCLUDE_DIR={self.install_dir}/include",
+            f"-DBoost_INCLUDE_DIRS={self.install_dir}/include",
             f"-DQt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-DCoin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1",
             f"-DSWIG_EXECUTABLE={self.install_dir}/bin/swig" + ".exe" if sys.platform.startswith("win32") else "",
@@ -121,9 +124,9 @@ class Compiler:
         ]
         CXX_FLAGS = ""
         if sys.platform.startswith("win32"):
-            CXX_FLAGS = "/I{self.install_dir}/include /EHsc"
+            CXX_FLAGS = f"/I{self.install_dir}/include /EHsc"
         else:
-            CXX_FLAGS="-I{self.install_dir}/include"
+            CXX_FLAGS= f"-I{self.install_dir}/include"
         base.append(f"-DCMAKE_CXX_FLAGS={CXX_FLAGS}")
         return base
 
@@ -201,18 +204,19 @@ class Compiler:
         qt_dir = options["install-directory"]
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
-                print("Not re-copying, instead just using existing Qt in the LibPack installation path")
+                print("  Not re-copying, instead just using existing Qt in the LibPack installation path")
                 return
         if not os.path.exists(qt_dir):
             print(f"Error: specified Qt installation path does not exist ({qt_dir})")
             exit(1)
+        print("  (Note that Qt isn't really 'built,' it is just copied from a local installation)")
         shutil.copytree(qt_dir, self.install_dir, dirs_exist_ok=True)
 
     def build_boost(self, _=None):
         """ Builds boost shared libraries and installs libraries and headers """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "boost")):
-                print("Not rebuilding boost, it is already in the LibPack")
+                print("  Not rebuilding boost, it is already in the LibPack")
                 return
         # Boost uses a custom build system and needs a config file to find our Python
         with open(os.path.join("tools", "build", "src", "user-config.jam"), "w", encoding="utf-8") as user_config:
@@ -260,7 +264,7 @@ class Compiler:
         """ Builds and installs Coin using standard CMake settings """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "share", "Coin")):
-                print("Not rebuilding Coin, it is already in the LibPack")
+                print("  Not rebuilding Coin, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
@@ -268,14 +272,14 @@ class Compiler:
         """ Builds and installs Quarter using standard CMake settings """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "Quarter")):
-                print("Not rebuilding Coin, it is already in the LibPack")
+                print("  Not rebuilding Quarter, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
     def build_zlib(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "zlib.h")):
-                print("Not rebuilding zlib, it is already in the LibPack")
+                print("  Not rebuilding zlib, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
@@ -283,7 +287,7 @@ class Compiler:
         """ The version of BZip2 in widespread use (1.0.8, the most recent official release) do not yet use cMake """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
-                print("Not rebuilding zlib, it is already in the LibPack")
+                print("  Not rebuilding bzip2, it is already in the LibPack")
                 return
         if sys.platform.startswith("win32"):
             args = [self.init_script, "&", "nmake", "/f", "makefile.msc"]
@@ -304,7 +308,7 @@ class Compiler:
     def build_pcre2(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "pcre2.h")):
-                print("Not rebuilding pcre2, it is already in the LibPack")
+                print("  Not rebuilding pcre2, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
@@ -312,14 +316,14 @@ class Compiler:
         if self.skip_existing:
             if os.path.exists(
                     os.path.join(self.install_dir, "bin", "swig") + ".exe" if sys.platform.startswith("win32") else ""):
-                print("Not rebuilding SWIG, it is already in the LibPack")
+                print("  Not rebuilding SWIG, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
     def build_pivy(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "pivy")):
-                print("Not rebuilding pivy, it is already in the LibPack")
+                print("  Not rebuilding pivy, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
@@ -327,7 +331,7 @@ class Compiler:
         """ libclang is provided as a platform-specific download by Qt. """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "clang")):
-                print("Not copying libclang, it is already in the LibPack")
+                print("  Not copying libclang, it is already in the LibPack")
                 return
         shutil.copytree("libclang", self.install_dir, dirs_exist_ok=True)
 
@@ -335,7 +339,7 @@ class Compiler:
         """ As of Qt6, pyside is installed using pip """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PySide6")):
-                print("Not rebuilding PySide6, it is already in the LibPack")
+                print("  Not rebuilding PySide6, it is already in the LibPack")
                 return
         if "pip-install" not in options:
             print("ERROR: No pip-install provided in configuration of pyside, so version cannot be determined")
