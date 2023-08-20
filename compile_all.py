@@ -39,7 +39,7 @@ def patch_single_file(filename, patch_data) -> None:
         print(f"ERROR: Failed to apply some patches to {filename}")
         # TODO: Someday actually print out what patches failed?
         exit(1)
-    with open (filename, "w", encoding="utf-8") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(new_text)
 
 
@@ -79,6 +79,7 @@ def patch_files(patches: list[str]) -> None:
         print(f"Applying patch {patch[start:]}")
         apply_patch(patch)
 
+
 class Compiler:
     def __init__(self, config, mode, bison_path, skip_existing: bool = False):
         self.config = config
@@ -97,7 +98,7 @@ class Compiler:
     def get_cmake_options(self) -> list[str]:
         """ Get a comprehensive list of cMake options that can be used in any cMake build. Not all options apply
         to all builds, but none conflict. """
-        return [
+        base = [
             f"-DBUILD_TESTS=No",
             f"-DBUILD_EXAMPLES=No",
             f"-DBUILD_DOCS=No",
@@ -116,9 +117,15 @@ class Compiler:
             f"-DZLIB_DIR={self.install_dir}/lib/cmake/",
             f"-DBZIP2_DIR={self.install_dir}/lib/cmake/",
             f"-DPCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib",
-            f"-DCMAKE_CXX_FLAGS=-I{self.install_dir}/include",
             f"-DBISON_EXECUTABLE={self.bison_path}"
         ]
+        CXX_FLAGS = ""
+        if sys.platform.startswith("win32"):
+            CXX_FLAGS = "/I{self.install_dir}/include /EHsc"
+        else:
+            CXX_FLAGS="-I{self.install_dir}/include"
+        base.append(f"-DCMAKE_CXX_FLAGS={CXX_FLAGS}")
+        return base
 
     def compile_all(self):
         for item in self.config["content"]:
@@ -228,14 +235,15 @@ class Compiler:
             print(e.output.decode("utf-8"))
             exit(e.returncode)
 
-    def _build_standard_cmake(self):
+    def _build_standard_cmake(self, extra_cxx_flags=""):
         build_dir = "build-" + str(self.mode).lower()
         if not os.path.exists(build_dir):
             os.mkdir(build_dir)
         os.chdir(build_dir)
 
         cmake_setup_options = ["cmake"]
-        cmake_setup_options.extend(self.get_cmake_options())
+        standard_options = self.get_cmake_options()
+        cmake_setup_options.extend(standard_options)
         cmake_setup_options.append("..")
         cmake_build_options = ["cmake", "--build", ".", "--config", str(self.mode), "--parallel"]
         cmake_install_options = ["cmake", "--install", "."]
@@ -271,19 +279,19 @@ class Compiler:
                 return
         self._build_standard_cmake()
 
-    def build_bzip2(self, _= None):
+    def build_bzip2(self, _=None):
         """ The version of BZip2 in widespread use (1.0.8, the most recent official release) do not yet use cMake """
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
                 print("Not rebuilding zlib, it is already in the LibPack")
                 return
         if sys.platform.startswith("win32"):
-            args = [self.init_script, "&", "nmake","/f", "makefile.msc"]
+            args = [self.init_script, "&", "nmake", "/f", "makefile.msc"]
             try:
                 subprocess.run(args, check=True, capture_output=True)
-                shutil.copyfile("libbz2.lib",os.path.join(self.install_dir, "lib", "libbz2.lib"))
-                shutil.copyfile("bzlib.h",os.path.join(self.install_dir, "include", "bzlib.h"))
-                shutil.copyfile("bzlib_private.h",os.path.join(self.install_dir, "include", "bzlib_private.h"))
+                shutil.copyfile("libbz2.lib", os.path.join(self.install_dir, "lib", "libbz2.lib"))
+                shutil.copyfile("bzlib.h", os.path.join(self.install_dir, "include", "bzlib.h"))
+                shutil.copyfile("bzlib_private.h", os.path.join(self.install_dir, "include", "bzlib_private.h"))
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build bzip2 using nmake")
                 print(e.output.decode("utf-8"))
@@ -302,10 +310,47 @@ class Compiler:
 
     def build_swig(self, _=None):
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "bin", "swig") + ".exe" if sys.platform.startswith("win32") else ""):
+            if os.path.exists(
+                    os.path.join(self.install_dir, "bin", "swig") + ".exe" if sys.platform.startswith("win32") else ""):
                 print("Not rebuilding SWIG, it is already in the LibPack")
                 return
         self._build_standard_cmake()
 
     def build_pivy(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "pivy")):
+                print("Not rebuilding pivy, it is already in the LibPack")
+                return
         self._build_standard_cmake()
+
+    def build_libclang(self, _=None):
+        """ libclang is provided as a platform-specific download by Qt. """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "clang")):
+                print("Not copying libclang, it is already in the LibPack")
+                return
+        shutil.copytree("libclang", self.install_dir, dirs_exist_ok=True)
+
+    def build_pyside(self, options=None):
+        """ As of Qt6, pyside is installed using pip """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PySide6")):
+                print("Not rebuilding PySide6, it is already in the LibPack")
+                return
+        if "pip-install" not in options:
+            print("ERROR: No pip-install provided in configuration of pyside, so version cannot be determined")
+            exit(1)
+        path_to_python = os.path.join(self.install_dir, "bin", "python")
+        if sys.platform.startswith("win32"):
+            path_to_python += ".exe"
+        try:
+            subprocess.run([path_to_python, "-m", "pip", "install", options['pip-install']], check=True,
+                           capture_output=True)
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: Failed to pip install {options['pip-install']}")
+            print(e.output.decode("utf-8"))
+            exit(1)
+
+    def build_vtk(self, _=None):
+        self._build_standard_cmake()
+
