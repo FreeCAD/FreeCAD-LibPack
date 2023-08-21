@@ -99,28 +99,30 @@ class Compiler:
         """ Get a comprehensive list of cMake options that can be used in any cMake build. Not all options apply
         to all builds, but none conflict. """
         base = [
-            f"-DBUILD_TESTS=No",
-            f"-DBUILD_EXAMPLES=No",
+            f"-DBISON_EXECUTABLE={self.bison_path}",
+            f"-DBOOST_ROOT={self.install_dir}",
             f"-DBUILD_DOCS=No",
+            f"-DBUILD_EXAMPLES=No",
             f"-DBUILD_SHARED=Yes",
             f"-DBUILD_SHARED_LIB=Yes",
             f"-DBUILD_SHARED_LIBS=Yes",
-            f"-DCMAKE_INSTALL_PATH={self.install_dir}",
-            f"-DCMAKE_INSTALL_PREFIX={self.install_dir}",
-            f"-DPython_ROOT_DIR={self.install_dir}/bin",
-            f"-DBOOST_ROOT={self.install_dir}",
+            f"-DBUILD_TESTS=No",
+            f"-DBZIP2_DIR={self.install_dir}/lib/cmake/",
             f"-DBoost_INCLUDE_DIR={self.install_dir}/include",
             f"-DBoost_INCLUDE_DIRS={self.install_dir}/include",
-            f"-DQt6_DIR={self.install_dir}/lib/cmake/Qt6",
+            f"-DCMAKE_INSTALL_PATH={self.install_dir}",
+            f"-DCMAKE_INSTALL_PREFIX={self.install_dir}",
             f"-DCoin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1",
+            f"-DHarfBuzz_DIR={self.install_dir}/lib/cmake/",
+            f"-DPCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib",
+            f"-DPython_ROOT_DIR={self.install_dir}/bin",
+            f"-DQt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-DSWIG_EXECUTABLE={self.install_dir}/bin/swig" + ".exe" if sys.platform.startswith("win32") else "",
+            f"-DVTK_MODULE_ENABLE_VTK_IOIOSS=NO", # Workaround for bug in Visual Studio MSVC 143
+            f"-DVTK_MODULE_ENABLE_VTK_ioss=NO", # Workaround for bug in Visual Studio MSVC 143
+            f"-DZLIB_DIR={self.install_dir}/lib/cmake/",
             f"-DZLIB_INCLUDE_DIR={self.install_dir}/include",
             f"-DZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib." + "lib" if sys.platform.startswith("win32") else "a",
-            f"-DHarfBuzz_DIR={self.install_dir}/lib/cmake/",
-            f"-DZLIB_DIR={self.install_dir}/lib/cmake/",
-            f"-DBZIP2_DIR={self.install_dir}/lib/cmake/",
-            f"-DPCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib",
-            f"-DBISON_EXECUTABLE={self.bison_path}"
         ]
         CXX_FLAGS = ""
         if sys.platform.startswith("win32"):
@@ -356,5 +358,72 @@ class Compiler:
             exit(1)
 
     def build_vtk(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "share", "licenses", "VTK")):
+                print("  Not rebuilding VTK, it is already in the LibPack")
+                return
         self._build_standard_cmake()
+
+    def build_harfbuzz(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "harfbuzz")):
+                print("  Not rebuilding harfbuzz, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_libpng(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "lib", "libpng")):
+                print("  Not rebuilding libpng, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_freetype(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "freetype2")):
+                print("  Not rebuilding freetype, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_tcl(self, _=None):
+        """ tcl does not use cMake """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
+                pass
+        if sys.platform.startswith("win32"):
+            try:
+                os.chdir("win")
+                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", str(self.mode).lower()]
+                subprocess.run(args, check=True, capture_output=True)
+                args = [self.init_script, "&", "nmake", "/f", "makefile.vc ", "install", f"INSTALLDIR={self.install_dir}"]
+                subprocess.run(args, check=True, capture_output=True)
+            except subprocess.CalledProcessError as e:
+                print("ERROR: Failed to build tcl using nmake")
+                print(e.output.decode("utf-8"))
+                exit(1)
+        else:
+            raise NotImplemented(
+                "Non-Windows compilation of tcl is not implemented yet"
+            )
+
+    def build_tk(self, _=None):
+        """ tk does not use cMake """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
+                pass
+        if sys.platform.startswith("win32"):
+            try:
+                os.chdir("win")
+                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", str(self.mode).lower()]
+                subprocess.run(args, check=True, capture_output=True)
+                args = [self.init_script, "&", "nmake", "/f", "makefile.vc ", "install", f"INSTALLDIR={self.install_dir}"]
+                subprocess.run(args, check=True, capture_output=True)
+            except subprocess.CalledProcessError as e:
+                print("ERROR: Failed to build tk using nmake")
+                print(e.output.decode("utf-8"))
+                exit(1)
+        else:
+            raise NotImplemented(
+                "Non-Windows compilation of tk is not implemented yet"
+            )
 
