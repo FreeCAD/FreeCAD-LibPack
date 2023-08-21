@@ -106,7 +106,9 @@ class Compiler:
             f"-DBUILD_SHARED=Yes",
             f"-DBUILD_SHARED_LIB=Yes",
             f"-DBUILD_SHARED_LIBS=Yes",
+            f"-DBUILD_TEST=No",
             f"-DBUILD_TESTS=No",
+            f"-DBUILD_TESTING=No",
             f"-DBZIP2_DIR={self.install_dir}/lib/cmake/",
             f"-DBoost_INCLUDE_DIR={self.install_dir}/include",
             f"-DBoost_INCLUDE_DIRS={self.install_dir}/include",
@@ -114,6 +116,11 @@ class Compiler:
             f"-DCMAKE_INSTALL_PREFIX={self.install_dir}",
             f"-DCoin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1",
             f"-DHarfBuzz_DIR={self.install_dir}/lib/cmake/",
+            f"-DHDF5_DIR={self.install_dir}/share/cmake/",
+            f"-DHDF5_LIBRARY_DEBUG=LIBPACK/lib/hdf5.lib",
+            f"-DHDF5_LIBRARY_RELEASE=LIBPACK/lib/hdf5.lib",
+            f"-DHDF5_DIFF_EXECUTABLE={self.install_dir}/bin/hdf5diff" + ".exe" if sys.platform.startswith("win32") else "",
+            f"-DINSTALL_DIR={self.install_dir}",
             f"-DPCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib",
             f"-DPython_ROOT_DIR={self.install_dir}/bin",
             f"-DQt6_DIR={self.install_dir}/lib/cmake/Qt6",
@@ -124,9 +131,9 @@ class Compiler:
             f"-DZLIB_INCLUDE_DIR={self.install_dir}/include",
             f"-DZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib." + "lib" if sys.platform.startswith("win32") else "a",
         ]
-        CXX_FLAGS = ""
         if sys.platform.startswith("win32"):
-            CXX_FLAGS = f"/I{self.install_dir}/include /EHsc"
+            inc_path = self.install_dir.replace('\\', '/')
+            CXX_FLAGS = f"/I{inc_path}/include /EHsc /DWIN32"
         else:
             CXX_FLAGS= f"-I{self.install_dir}/include"
         base.append(f"-DCMAKE_CXX_FLAGS={CXX_FLAGS}")
@@ -241,7 +248,7 @@ class Compiler:
             print(e.output.decode("utf-8"))
             exit(e.returncode)
 
-    def _build_standard_cmake(self, extra_cxx_flags=""):
+    def _build_standard_cmake(self, extra_args: list[str] = None):
         build_dir = "build-" + str(self.mode).lower()
         if not os.path.exists(build_dir):
             os.mkdir(build_dir)
@@ -250,6 +257,8 @@ class Compiler:
         cmake_setup_options = ["cmake"]
         standard_options = self.get_cmake_options()
         cmake_setup_options.extend(standard_options)
+        if extra_args:
+            cmake_setup_options.extend(extra_args)
         cmake_setup_options.append("..")
         cmake_build_options = ["cmake", "--build", ".", "--config", str(self.mode), "--parallel"]
         cmake_install_options = ["cmake", "--install", "."]
@@ -388,14 +397,21 @@ class Compiler:
     def build_tcl(self, _=None):
         """ tcl does not use cMake """
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
-                pass
+            if os.path.exists(os.path.join(self.install_dir, "include", "tcl.h")):
+                print("  Not rebuilding tcl, it is already in the LibPack")
+                return
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
                 args = [self.init_script, "&", "nmake", "/f", "makefile.vc", str(self.mode).lower()]
                 subprocess.run(args, check=True, capture_output=True)
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc ", "install", f"INSTALLDIR={self.install_dir}"]
+                args = [self.init_script,
+                        "&",
+                        "nmake",
+                        "/f",
+                        "makefile.vc",
+                        "install",
+                        f"INSTALLDIR={self.install_dir}"]
                 subprocess.run(args, check=True, capture_output=True)
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tcl using nmake")
@@ -409,8 +425,9 @@ class Compiler:
     def build_tk(self, _=None):
         """ tk does not use cMake """
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "include", "bzlib.h")):
-                pass
+            if os.path.exists(os.path.join(self.install_dir, "include", "tk.h")):
+                print("  Not rebuilding tk, it is already in the LibPack")
+                return
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
@@ -425,5 +442,83 @@ class Compiler:
         else:
             raise NotImplemented(
                 "Non-Windows compilation of tk is not implemented yet"
+            )
+
+    def build_opencascade(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake")):
+                print("  Not rebuilding OpenCASCADE, it is already in the LibPack")
+                return
+        extra_args = [f"-D3RDPARTY_DIR={self.install_dir}", "-DUSE_VTK=ON",
+                      f"-D3RDPARTY_VTK_INCLUDE_DIR={self.install_dir}/include/vtk-9.2"]
+        if self.mode == BuildMode.DEBUG:
+            extra_args.append("-DBUILD_SHARED_LIBRARY_NAME_POSTFIX=d")
+        self._build_standard_cmake(extra_args=extra_args)
+
+    def build_netgen(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "share", "netgen")):
+                print("  Not rebuilding netgen, it is already in the LibPack")
+                return
+        extra_args = ["-D USE_SUPERBUILD=OFF",
+                      "-D USE_GUI=OFF",
+                      f"-D USE_INTERNAL_TCL=OFF",
+                      f"-D TCL_DIR={self.install_dir}",
+                      f"-D TK_DIR={self.install_dir}"]
+        self._build_standard_cmake(extra_args=extra_args)
+
+    def build_hdf5(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "hdf5.h")):
+                print("  Not rebuilding hdf5, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_medfile(self, _: None):
+        print("  *** Salome MED File source is not currently available -- skipping in this build ***")
+        return
+        #extra_args = ["-DMEDFILE_USE_UNICODE=On"]
+        #self._build_standard_cmake(extra_args)
+
+    def build_gmsh(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(
+                    os.path.join(self.install_dir,
+                                 "bin",
+                                 "gmsh" + ".exe" if sys.platform.startswith("win32") else "")):
+                print("  Not rebuilding gmsh, it is already in the LibPack")
+                return
+        extra_args = []
+        if sys.platform.startswith("win32"):
+            extra_args = [f"-D CMAKE_LIBRARY_PATH={self.install_dir}/win64/vc14/lib",  # TODO - Remove hardcoding
+                          "-D ENABLE_OPENMP=No"]  # Build fails if OpenMP is enabled
+        self._build_standard_cmake(extra_args)
+
+    def build_pycxx(self, _: None):
+        """ PyCXX does not use a cMake-based build system """
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "CXX")):
+                print("  Not rebuilding PyCXX, it is already in the LibPack")
+                return
+        path_to_python = os.path.join(self.install_dir, "bin", "python")
+        if sys.platform.startswith("win32"):
+            path_to_python += ".exe"
+        args = [path_to_python, "setup.py", "install"]
+        try:
+            subprocess.run(args, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            print("ERROR: Failed to build PyCXX using its custom build script")
+            print(e.output.decode("utf-8"))
+            exit(1)
+
+    def build_icu(self, _: None):
+        """ ICU does not use cMake, but has projects for various OSes """
+
+        if sys.platform.startswith("win32"):
+            args = ["msbuild", f"/p:Configuration={self.mode}", "/t:Build", "allinone.sln"]
+            subprocess.run(args, check=True, capture_output=True)
+        else:
+            raise NotImplemented(
+                "Non-Windows compilation of ICU is not implemented yet"
             )
 
