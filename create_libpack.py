@@ -126,6 +126,15 @@ def decompress(name: str, filename: str):
     os.chdir(original_dir)
 
 
+def write_manifest(outer_config: dict, mode):
+    manifest_file = os.path.join(compile_all.libpack_dir(outer_config, mode), "manifest.json")
+    with open(manifest_file, "w", encoding="utf-8") as f:
+        f.write(json.dumps(outer_config["content"]))
+    version_file = os.path.join(compile_all.libpack_dir(outer_config, mode), "FREECAD_LIBPACK_VERSION")
+    with open(version_file, "w", encoding="utf-8") as f:
+        f.write(outer_config["LibPack-version"])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Builds a collection of FreeCAD dependencies for the current system"
@@ -192,7 +201,5 @@ if __name__ == "__main__":
     compiler.init_script = devel_init_script
     compiler.compile_all()
 
+    write_manifest(config, compile_all.BuildMode.RELEASE)
 
-# Preliminary setup that will be needed for running CMake
-# CMAKE_PREFIX_PATH to libpack dir
-# CMAKE_INSTALL_PREFIX to libpack dir
