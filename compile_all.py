@@ -105,6 +105,7 @@ class Compiler:
         base = [
             f"-D BISON_EXECUTABLE={self.bison_path}",
             f"-D BOOST_ROOT={self.install_dir}",
+            f"-D BUILD_DOC=No",
             f"-D BUILD_DOCS=No",
             f"-D BUILD_EXAMPLES=No",
             f"-D BUILD_SHARED=Yes",
@@ -577,9 +578,9 @@ class Compiler:
                     "/t:Build", "/p:SkipUWP=true", "allinone.sln"]
             subprocess.run(args, check=True, capture_output=True)
             bin_dir = os.path.join(self.install_dir, "bin")
-            lib_dir = os.path.join(bin_dir, "lib")
-            inc_dir = os.path.join(bin_dir, "include")
-            os.chdir(os.path.join("..",".."))
+            lib_dir = os.path.join(self.install_dir, "lib")
+            inc_dir = os.path.join(self.install_dir, "include")
+            os.chdir(os.path.join("..", ".."))
             shutil.copytree(f"bin64", bin_dir, dirs_exist_ok=True)
             shutil.copytree(f"lib64", lib_dir, dirs_exist_ok=True)
             shutil.copytree(f"include", inc_dir, dirs_exist_ok=True)
@@ -587,3 +588,25 @@ class Compiler:
             raise NotImplemented(
                 "Non-Windows compilation of ICU is not implemented yet"
             )
+
+    def build_xercesc(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "xercesc")):
+                print("  Not rebuilding xerces-c, it is already in the LibPack")
+                return
+        extra_args = [f"-D ICU_INCLUDE_DIR={self.install_dir}/include/unicode"]
+        self._build_standard_cmake(extra_args)
+
+    def build_libfmt(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "fmt")):
+                print("  Not rebuilding libfmt, it is already in the LibPack")
+                return
+        self._build_standard_cmake()
+
+    def build_eigen3(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "eigen3")):
+                print("  Not rebuilding Eigen3, it is already in the LibPack")
+                return
+        self._build_standard_cmake()

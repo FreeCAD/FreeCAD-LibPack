@@ -121,7 +121,7 @@
             "git-ref":"release-73-2"
         },
         {
-            "name":"xerces-c",
+            "name":"xercesc",
             "git-repo":"https://github.com/apache/xerces-c",
             "git-ref":"v3.2.4"
         },
