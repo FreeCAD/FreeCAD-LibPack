@@ -1,4 +1,5 @@
 #!/bin/python3
+import sys
 
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
@@ -170,8 +171,14 @@ if __name__ == "__main__":
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
-    if not os.path.exists(os.path.join("working","bin")):
-        print("ERROR: ")
+    base = compile_all.libpack_dir(config, compile_all.BuildMode.RELEASE)
+    expected_py = os.path.join(base, "bin", "python")
+    if sys.platform.startswith("win32"):
+        expected_py += ".exe"
+    if not os.path.exists(expected_py):
+        print(f"ERROR: Could not find Python at {expected_py}")
+        print("Run the bootstrap.py script and then install Python into the created 'bin' directory")
+        exit(1)
     os.chdir(args["working"])
 
     fetch_remote_data(config, args["skip_existing_clone"])
