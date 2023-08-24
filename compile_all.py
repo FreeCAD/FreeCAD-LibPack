@@ -511,11 +511,16 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "share", "netgen")):
                 print("  Not rebuilding netgen, it is already in the LibPack")
                 return
-        extra_args = ["-D USE_SUPERBUILD=OFF",
+        extra_args = [f"-DCMAKE_FIND_ROOT_PATH={self.install_dir}",
+                      "-D USE_SUPERBUILD=OFF",
                       "-D USE_GUI=OFF",
-                      f"-D USE_INTERNAL_TCL=OFF",
+                      "-D USE_INTERNAL_TCL=OFF",
                       f"-D TCL_DIR={self.install_dir}",
-                      f"-D TK_DIR={self.install_dir}"]
+                      f"-D TK_DIR={self.install_dir}",
+                      "-D USE_OCC=On",
+                      f"-D OpenCASCADE_ROOT={self.install_dir}",
+                      f"-D USE_PYTHON=On",
+                      f"-D PYTHON_EXECUTABLE={self.install_dir}/bin/python{'.exe' if sys.platform.startswith('win32') else ''}"]
         self._build_standard_cmake(extra_args=extra_args)
 
     def build_hdf5(self, _: None):
