@@ -1,0 +1,22 @@
+@@@ libsrc/meshing/meshclass.cpp @@@
+@@ -127560,24 +127560,139 @@
+ ocal_sum);%0A%0A
++         // NOTE: patched with a simple refactor to work around a compiler bug in MSVC 14.3%0A         std::mutex m;%0A
+          for
+@@ -127715,24 +127715,26 @@
+ (n_classes))
++ %7B
+ %0A           
+@@ -127739,17 +127739,44 @@
+     
+-AsAtomic(
++std::scoped_lock%7B m %7D;%0A             
+ tets
+@@ -127791,17 +127791,16 @@
+ class%5Bi%5D
+-)
+  += clas
+@@ -127809,24 +127809,35 @@
+ s_local%5Bi%5D;%0A
++         %7D%0A
+     %7D);%0A%0A   

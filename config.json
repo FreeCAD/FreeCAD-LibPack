@@ -121,7 +121,8 @@
         {
             "name":"netgen",
             "git-repo":"https://github.com/NGSolve/netgen",
-            "git-ref":"v6.2.2304"
+            "git-ref":"v6.2.2304",
+            "patches":["patches/netgen-01-compiler_bug_workaround_msvc14_std_atomic.patch"]
         },
         {
             "name":"hdf5",

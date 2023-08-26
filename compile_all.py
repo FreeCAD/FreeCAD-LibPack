@@ -89,16 +89,6 @@ def libpack_dir(config: dict, mode: BuildMode):
     return os.path.join(os.path.dirname(__file__), "working", lp_dir)
 
 
-def cmake_install():
-    cmake_install_options = ["cmake", "--install", "."]
-    try:
-        subprocess.run(cmake_install_options, check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        print("ERROR: Install failed!")
-        print(e.output.decode("utf-8"))
-        exit(e.returncode)
-
-
 class Compiler:
     def __init__(self, config, mode, bison_path, skip_existing: bool = False):
         self.config = config
@@ -161,8 +151,6 @@ class Compiler:
             # All build methods are named using "build_XXX" where XXX is the name of the package in the config file
             print(f"Building {item['name']} in {self.mode} mode")
             os.chdir(item["name"])
-            if "patches" in item:
-                patch_files(item["patches"])
             build_function_name = "build_" + item["name"]
             build_function = getattr(self, build_function_name)
             build_function(item)
@@ -183,6 +171,7 @@ class Compiler:
                 path = "amd64" if platform.machine() == "AMD64" else "arm64"
                 subprocess.run(
                     [
+                        self.init_script, "&",
                         "PCbuild\\build.bat",
                         "-p",
                         arch,
@@ -257,10 +246,10 @@ class Compiler:
             user_config.write(f'using python : {python_version} : "{exe}" : "{inc_dir}" : "{lib_dir}"  ;\n')
         try:
             # When debugging on the command line, add --debug-configuration to get more verbose output
-            subprocess.run(["bootstrap.bat"], capture_output=True, check=True)
-            subprocess.run(["b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=static"], check=True,
+            subprocess.run([self.init_script, "&", "bootstrap.bat"], capture_output=True, check=True)
+            subprocess.run([self.init_script, "&", "b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=static"], check=True,
                            capture_output=True)
-            subprocess.run(["b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=shared"], check=True,
+            subprocess.run([self.init_script, "&", "b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=shared"], check=True,
                            capture_output=True)
             shutil.copytree(os.path.join("stage", "lib"), os.path.join(self.install_dir, "lib"), dirs_exist_ok=True)
             shutil.copytree("boost", os.path.join(self.install_dir, "include", "boost"),
@@ -276,34 +265,36 @@ class Compiler:
             os.mkdir(build_dir)
         os.chdir(build_dir)
 
-    def _cmake_configure(self, extra_args: list[str] = None):
-        cmake_setup_options = ["cmake"]
-        standard_options = self.get_cmake_options()
-        cmake_setup_options.extend(standard_options)
-        if extra_args:
-            cmake_setup_options.extend(extra_args)
-        cmake_setup_options.append("..")
+    def _run_cmake(self, args):
+        cmake_setup_options = [self.init_script, "&", "cmake"]
+        cmake_setup_options.extend(args)
         try:
             subprocess.run(cmake_setup_options, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
-            print("ERROR: cMake Configure failed!")
+            print("ERROR: cMake failed!")
             print(e.output.decode("utf-8"))
             exit(e.returncode)
 
+    def _cmake_configure(self, extra_args: list[str] = None):
+        options = self.get_cmake_options()
+        if extra_args:
+            options.extend(extra_args)
+        options.append("..")
+        self._run_cmake(options)
+
     def _cmake_build(self):
-        cmake_build_options = ["cmake", "--build", ".", "--config", str(self.mode), "--parallel"]
-        try:
-            subprocess.run(cmake_build_options, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            print("ERROR: Build failed!")
-            print(e.output.decode("utf-8"))
-            exit(e.returncode)
+        cmake_build_options = ["--build", ".", "--config", str(self.mode), "--parallel"]
+        self._run_cmake(cmake_build_options)
+
+    def _cmake_install(self):
+        cmake_install_options = ["--install", "."]
+        self._run_cmake(cmake_install_options)
 
     def _build_standard_cmake(self, extra_args: list[str] = None):
         self._cmake_create_build_dir()
         self._cmake_configure(extra_args)
         self._cmake_build()
-        cmake_install()
+        self._cmake_install()
 
     def _pip_install(self, requirement: str) -> None:
         path_to_python = os.path.join(self.install_dir, "bin", "python")
@@ -637,7 +628,9 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "xercesc")):
                 print("  Not rebuilding xerces-c, it is already in the LibPack")
                 return
-        extra_args = [f"-D ICU_INCLUDE_DIR={self.install_dir}/include/unicode"]
+        extra_args = [f"-D ICU_INCLUDE_DIR={self.install_dir}/include/unicode",
+                      f"-D ICU_ROOT={self.install_dir}",
+                      f"-D ICU_UC_DIR={self.install_dir}"]
         self._build_standard_cmake(extra_args)
 
     def build_libfmt(self, _: None):
