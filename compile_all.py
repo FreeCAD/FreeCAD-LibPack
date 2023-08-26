@@ -76,17 +76,27 @@ def patch_files(patches: list[str]) -> None:
     expected to be given as paths relative to **this** Python script file"""
     for patch in patches:
         start = len("patches/")
-        print(f"Applying patch {patch[start:]}")
+        print(f"  Applying patch {patch[start:]}")
         apply_patch(patch)
 
 
 def libpack_dir(config: dict, mode: BuildMode):
-    dir = "LibPack-{}-v{}-{}".format(
+    lp_dir = "LibPack-{}-v{}-{}".format(
         config["FreeCAD-version"],
         config["LibPack-version"],
         str(mode),
     )
-    return os.path.join(os.path.dirname(__file__), "working", dir)
+    return os.path.join(os.path.dirname(__file__), "working", lp_dir)
+
+
+def cmake_install():
+    cmake_install_options = ["cmake", "--install", "."]
+    try:
+        subprocess.run(cmake_install_options, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        print("ERROR: Install failed!")
+        print(e.output.decode("utf-8"))
+        exit(e.returncode)
 
 
 class Compiler:
@@ -140,10 +150,10 @@ class Compiler:
         ]
         if sys.platform.startswith("win32"):
             inc_path = self.install_dir.replace('\\', '/')
-            CXX_FLAGS = f"/I{inc_path}/include /EHsc /DWIN32"
+            cxx_flags = f"/I{inc_path}/include /EHsc /DWIN32"
         else:
-            CXX_FLAGS = f"-I{self.install_dir}/include"
-        base.append(f"-D CMAKE_CXX_FLAGS={CXX_FLAGS}")
+            cxx_flags = f"-I{self.install_dir}/include"
+        base.append(f"-D CMAKE_CXX_FLAGS={cxx_flags}")
         return base
 
     def compile_all(self):
@@ -239,14 +249,19 @@ class Compiler:
             exe = os.path.join(self.install_dir, "bin", "python")
             if sys.platform.startswith("win32"):
                 exe += ".exe"
-            inc_dir = os.path.join(self.install_dir, "bin", "Include")
-            lib_dir = os.path.join(self.install_dir, "bin", "Lib")
+                exe = exe.replace("\\", "\\\\")
+            inc_dir = os.path.join(self.install_dir, "bin", "include").replace("\\", "\\\\")
+            lib_dir = os.path.join(self.install_dir, "bin", "libs").replace("\\", "\\\\")
             python_version = self.get_python_version()
             print(f"Building boost-python with Python {python_version}")
             user_config.write(f'using python : {python_version} : "{exe}" : "{inc_dir}" : "{lib_dir}"  ;\n')
         try:
+            # When debugging on the command line, add --debug-configuration to get more verbose output
             subprocess.run(["bootstrap.bat"], capture_output=True, check=True)
-            subprocess.run(["b2", f"variant={str(self.mode).lower()}"], check=True, capture_output=True)
+            subprocess.run(["b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=static"], check=True,
+                           capture_output=True)
+            subprocess.run(["b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=shared"], check=True,
+                           capture_output=True)
             shutil.copytree(os.path.join("stage", "lib"), os.path.join(self.install_dir, "lib"), dirs_exist_ok=True)
             shutil.copytree("boost", os.path.join(self.install_dir, "include", "boost"),
                             dirs_exist_ok=True)
@@ -284,20 +299,50 @@ class Compiler:
             print(e.output.decode("utf-8"))
             exit(e.returncode)
 
-    def _cmake_install(self):
-        cmake_install_options = ["cmake", "--install", "."]
-        try:
-            subprocess.run(cmake_install_options, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            print("ERROR: Install failed!")
-            print(e.output.decode("utf-8"))
-            exit(e.returncode)
-
     def _build_standard_cmake(self, extra_args: list[str] = None):
         self._cmake_create_build_dir()
         self._cmake_configure(extra_args)
         self._cmake_build()
-        self._cmake_install()
+        cmake_install()
+
+    def _pip_install(self, requirement: str) -> None:
+        path_to_python = os.path.join(self.install_dir, "bin", "python")
+        if sys.platform.startswith("win32"):
+            path_to_python += ".exe"
+        try:
+            subprocess.run([path_to_python, "-m", "pip", "install", requirement], check=True,
+                           capture_output=True)
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: Failed to pip install {requirement}")
+            print(e.output.decode("utf-8"))
+            exit(1)
+
+    def _build_with_pip(self, options: dict):
+        if "pip-install" not in options:
+            print(f"ERROR: No pip-install provided in configuration of {options['name']}, so version cannot be determined")
+            exit(1)
+        self._pip_install(options["pip-install"])
+
+    def build_numpy(self, options=None):
+        self._build_with_pip(options)
+
+    def build_scipy(self, options=None):
+        self._build_with_pip(options)
+
+    def build_pillow(self, options=None):
+        self._build_with_pip(options)
+
+    def build_pyyaml(self, options=None):
+        self._build_with_pip(options)
+
+    def build_pycollada(self, options=None):
+        self._build_with_pip(options)
+
+    def build_matplotlib(self, options=None):
+        self._build_with_pip(options)
+
+    def build_opencv(self, options=None):
+        self._build_with_pip(options)
 
     def build_coin(self, _=None):
         """ Builds and installs Coin using standard CMake settings """
@@ -305,7 +350,8 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "share", "Coin")):
                 print("  Not rebuilding Coin, it is already in the LibPack")
                 return
-        self._build_standard_cmake()
+        extra_args = ["-DCOIN_BUILD_TESTS=Off"]
+        self._build_standard_cmake(extra_args)
 
     def build_quarter(self, _=None):
         """ Builds and installs Quarter using standard CMake settings """
@@ -383,16 +429,7 @@ class Compiler:
         if "pip-install" not in options:
             print("ERROR: No pip-install provided in configuration of pyside, so version cannot be determined")
             exit(1)
-        path_to_python = os.path.join(self.install_dir, "bin", "python")
-        if sys.platform.startswith("win32"):
-            path_to_python += ".exe"
-        try:
-            subprocess.run([path_to_python, "-m", "pip", "install", options['pip-install']], check=True,
-                           capture_output=True)
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR: Failed to pip install {options['pip-install']}")
-            print(e.output.decode("utf-8"))
-            exit(1)
+        self._pip_install(options["pip-install"])
 
     def build_vtk(self, _=None):
         if self.skip_existing:
@@ -520,7 +557,8 @@ class Compiler:
                       "-D USE_OCC=On",
                       f"-D OpenCASCADE_ROOT={self.install_dir}",
                       f"-D USE_PYTHON=On",
-                      f"-D PYTHON_EXECUTABLE={self.install_dir}/bin/python{'.exe' if sys.platform.startswith('win32') else ''}"]
+                      "-D PYTHON_EXECUTABLE="
+                      f"{self.install_dir}/bin/python{'.exe' if sys.platform.startswith('win32') else ''}"]
         self._build_standard_cmake(extra_args=extra_args)
 
     def build_hdf5(self, _: None):
@@ -615,3 +653,11 @@ class Compiler:
                 print("  Not rebuilding Eigen3, it is already in the LibPack")
                 return
         self._build_standard_cmake()
+
+    def build_yamlcpp(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "yaml-cpp")):
+                print("  Not rebuilding yaml-cpp, it is already in the LibPack")
+                return
+        extra_args = ["-D YAML_BUILD_SHARED_LIBS=ON"]
+        self._build_standard_cmake((extra_args))

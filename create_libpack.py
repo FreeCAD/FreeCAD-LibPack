@@ -21,8 +21,19 @@ import os
 import shutil
 import stat
 import subprocess
-import requests
 from urllib.parse import urlparse
+
+try:
+    import requests
+except ImportError:
+    print("Please pip --install requests")
+    exit(1)
+
+try:
+    import diff_match_patch
+except ImportError:
+    print("Please pip --install diff_match_patch")
+    exit(1)
 
 import compile_all
 

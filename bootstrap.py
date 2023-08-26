@@ -62,7 +62,7 @@ def create_libpack_dir(config: dict, mode: BuildMode) -> str:
         os.rename(dirname, backup_name)
     if not os.path.exists(dirname):
         os.mkdir(dirname)
-    dirname = os.pawth.join(dirname, "bin")
+    dirname = os.path.join(dirname, "bin")
     if not os.path.exists(dirname):
         os.mkdir(dirname)
     return dirname

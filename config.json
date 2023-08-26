@@ -7,6 +7,34 @@
             "install-directory":"C:\\Qt\\6.5.2\\msvc2019_64"
         },
         {
+            "name":"numpy",
+            "pip-install":"numpy==1.25.2"
+        },
+        {
+            "name":"scipy",
+            "pip-install":"scipy==1.11.2"
+        },
+        {
+            "name":"pillow",
+            "pip-install":"Pillow==10.0.0"
+        },
+        {
+            "name":"pyyaml",
+            "pip-install":"PyYAML==6.0.1"
+        },
+        {
+            "name":"pycollada",
+            "pip-install":"pycollada==0.7.2"
+        },
+        {
+            "name":"matplotlib",
+            "pip-install":"matplotlib==3.7.2"
+        },
+        {
+            "name":"opencv",
+            "pip-install":"opencv-python==4.8.0.76"
+        },
+        {
             "name":"boost",
             "git-repo":"https://github.com/boostorg/boost",
             "git-ref":"boost-1.83.0"
@@ -134,6 +162,11 @@
             "name":"eigen3",
             "git-repo":"https://gitlab.com/libeigen/eigen",
             "git-ref":"3.4.0"
+        },
+        {
+            "name": "yamlcpp",
+            "git-repo": "https://github.com/jbeder/yaml-cpp",
+            "git-ref":"0.8.0"
         }
     ]
 }
