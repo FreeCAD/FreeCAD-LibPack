@@ -1,22 +1,42 @@
 @@@ libsrc/meshing/meshclass.cpp @@@
-@@ -127560,24 +127560,139 @@
- ocal_sum);%0A%0A
-+         // NOTE: patched with a simple refactor to work around a compiler bug in MSVC 14.3%0A         std::mutex m;%0A
-          for
-@@ -127715,24 +127715,26 @@
- (n_classes))
-+ %7B
- %0A           
-@@ -127739,17 +127739,44 @@
+@@ -126921,265 +126921,182 @@
      
--AsAtomic(
-+std::scoped_lock%7B m %7D;%0A             
- tets
-@@ -127791,17 +127791,16 @@
- class%5Bi%5D
--)
-  += clas
-@@ -127809,24 +127809,35 @@
- s_local%5Bi%5D;%0A
-+         %7D%0A
-     %7D);%0A%0A   
+-ParallelForRange( IntRange(volelements.Size()), %5B&%5D (auto myrange)%0A       %7B%0A         double local_sum = 0.0;%0A         double teterrpow = mp.opterrpow;%0A%0A         std::array%3Cint,n_classes%3E classes_local%7B%7D;%0A%0A         for (auto i : myrange)%0A           %7B%0A       
++// NOTE: Patched to eliminate the ParallelForRange, which gives MSVC 14.3 an internal compiler error%0A    for (auto &e : volelements) %7B%0A      double teterrpow = mp.opterrpow;%0A
+     
+@@ -127139,30 +127139,17 @@
+ points, 
+-volelements%5Bi%5D
++e
+ , 0, mp)
+@@ -127174,31 +127174,24 @@
+ ow);%0A%0A      
+-     
+-  
+ int qualclas
+@@ -127219,31 +127219,24 @@
+ elbad + 1);%0A
+-       
+       if (qu
+@@ -127259,31 +127259,24 @@
+ lclass = 1;%0A
+-       
+       if (qu
+@@ -127329,28 +127329,25 @@
+     
+-       classes_local
++tets_in_qualclass
+ %5Bqua
+@@ -127356,35 +127356,19 @@
+ lass
+--1
+ %5D++;%0A
+-%0A   
+       
+-    local_
+ sum 
+@@ -127385,168 +127385,9 @@
+     
+-       %7D%0A%0A         AtomicAdd(sum, local_sum);%0A%0A         for (auto i : Range(n_classes))%0A             AsAtomic(tets_in_qualclass%5Bi%5D) += classes_local%5Bi%5D;%0A    %7D);
++%7D
+ %0A%0A  

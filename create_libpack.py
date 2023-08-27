@@ -94,7 +94,10 @@ def fetch_remote_data(config: dict, skip_existing: bool = False):
             # Just make the directory, presumably later code will know what to do
             os.makedirs(item["name"], exist_ok=True)
         if "patches" in item:
+            cwd = os.getcwd()
+            os.chdir(item["name"])
             compile_all.patch_files(item["patches"])
+            os.chdir(cwd)
 
 
 def clone(name: str, url: str, ref: str = None):

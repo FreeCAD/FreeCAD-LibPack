@@ -35,6 +35,21 @@
             "pip-install":"opencv-python==4.8.0.76"
         },
         {
+            "name":"zlib",
+            "git-repo":"https://github.com/madler/zlib",
+            "git-ref":"v1.3"
+        },
+        {
+            "name":"bzip2",
+            "git-repo":"https://gitlab.com/bzip2/bzip2.git",
+            "git-ref":"bzip2-1.0.8"
+        },
+        {
+            "name":"libpng",
+            "git-repo":"https://github.com/glennrp/libpng",
+            "git-ref":"v1.6.40"
+        },
+        {
             "name":"boost",
             "git-repo":"https://github.com/boostorg/boost",
             "git-ref":"boost-1.83.0"
@@ -49,16 +64,6 @@
             "git-repo":"https://github.com/coin3d/quarter",
             "git-ref":"master",
             "patches":["patches/quarter-01-add-QOpenGLContext-to-QuarterWidgetP.patch"]
-        },
-        {
-            "name":"zlib",
-            "git-repo":"https://github.com/madler/zlib",
-            "git-ref":"v1.3"
-        },
-        {
-            "name":"bzip2",
-            "git-repo":"https://gitlab.com/bzip2/bzip2.git",
-            "git-ref":"bzip2-1.0.8"
         },
         {
             "name":"pcre2",
@@ -92,11 +97,6 @@
             "name":"harfbuzz",
             "git-repo":"https://github.com/harfbuzz/harfbuzz",
             "git-ref":"8.1.1"
-        },
-        {
-            "name":"libpng",
-            "git-repo":"https://github.com/glennrp/libpng",
-            "git-ref":"v1.6.40"
         },
         {
             "name":"freetype",

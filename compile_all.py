@@ -115,7 +115,7 @@ class Compiler:
             f"-D BUILD_TESTS=No",
             f"-D BUILD_TESTING=No",
             f"-D BZIP2_DIR={self.install_dir}/lib/cmake/",
-            f"-D Boost_INCLUDE_DIR={self.install_dir}/include",
+            f"-D Boost_INCLUDE_DIR={self.install_dir}/include/boost-1_83/",
             f"-D Boost_INCLUDE_DIRS={self.install_dir}/include",
             f"-D CMAKE_INSTALL_PATH={self.install_dir}",
             f"-D CMAKE_INSTALL_PREFIX={self.install_dir}",
@@ -242,18 +242,24 @@ class Compiler:
             inc_dir = os.path.join(self.install_dir, "bin", "include").replace("\\", "\\\\")
             lib_dir = os.path.join(self.install_dir, "bin", "libs").replace("\\", "\\\\")
             python_version = self.get_python_version()
-            print(f"Building boost-python with Python {python_version}")
+            print(f"  (boost-python is being built against Python {python_version})")
             user_config.write(f'using python : {python_version} : "{exe}" : "{inc_dir}" : "{lib_dir}"  ;\n')
         try:
             # When debugging on the command line, add --debug-configuration to get more verbose output
             subprocess.run([self.init_script, "&", "bootstrap.bat"], capture_output=True, check=True)
-            subprocess.run([self.init_script, "&", "b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=static"], check=True,
+            subprocess.run([self.init_script, "&", "b2",
+                            f"install",
+                            f"variant={str(self.mode).lower()}",
+                            "address-model=64",
+                            "link=shared",
+                            f"--prefix=${self.install_dir}",
+                            "--layout=versioned", # or system
+                            "--build-type=complete"], # or minimal
+                           check=True,
                            capture_output=True)
-            subprocess.run([self.init_script, "&", "b2", f"variant={str(self.mode).lower()}", "address-model=64", "link=shared"], check=True,
-                           capture_output=True)
-            shutil.copytree(os.path.join("stage", "lib"), os.path.join(self.install_dir, "lib"), dirs_exist_ok=True)
-            shutil.copytree("boost", os.path.join(self.install_dir, "include", "boost"),
-                            dirs_exist_ok=True)
+            #shutil.copytree(os.path.join("stage", "lib"), os.path.join(self.install_dir, "lib"), dirs_exist_ok=True)
+            #shutil.copytree("boost", os.path.join(self.install_dir, "include", "boost"),
+            #                dirs_exist_ok=True)
         except subprocess.CalledProcessError as e:
             print("Error: failed to build boost")
             print(e.output.decode("utf-8"))
@@ -283,7 +289,8 @@ class Compiler:
         self._run_cmake(options)
 
     def _cmake_build(self):
-        cmake_build_options = ["--build", ".", "--config", str(self.mode), "--parallel"]
+        # Not building with --parallel because even with 32gb of RAM, OpenCASCADE runs out of memory on my system
+        cmake_build_options = ["--build", ".", "--config", str(self.mode)]
         self._run_cmake(cmake_build_options)
 
     def _cmake_install(self):
@@ -409,6 +416,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "clang")):
                 print("  Not copying libclang, it is already in the LibPack")
                 return
+        print("  (not really building libclang, just copying from a build provided by Qt)")
         shutil.copytree("libclang", self.install_dir, dirs_exist_ok=True)
 
     def build_pyside(self, options=None):
@@ -427,6 +435,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "share", "licenses", "VTK")):
                 print("  Not rebuilding VTK, it is already in the LibPack")
                 return
+        print("  (VTK is big, this will take some time)")
         self._build_standard_cmake()
 
     def build_harfbuzz(self, _=None):
@@ -557,6 +566,8 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "hdf5.h")):
                 print("  Not rebuilding hdf5, it is already in the LibPack")
                 return
+        # Something goes wrong with the install during this script, but when run from the command line it succeeds
+        # without a problem.
         self._build_standard_cmake()
 
     def build_medfile(self, _: None):
