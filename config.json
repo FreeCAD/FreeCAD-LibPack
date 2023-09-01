@@ -35,6 +35,18 @@
             "pip-install":"opencv-python==4.8.0.76"
         },
         {
+            "name":"cmake",
+            "pip-install":"cmake==3.27.2"
+        },
+        {
+            "name":"setuptools",
+            "pip-install":"setuptools==68.1.2"
+        },
+        {
+            "name":"wheel",
+            "pip-install":"wheel==0.41.2"
+        },
+        {
             "name":"zlib",
             "git-repo":"https://github.com/madler/zlib",
             "git-ref":"v1.3"
@@ -86,7 +98,8 @@
         },
         {
             "name":"pyside",
-            "pip-install":"pyside6==6.5.2"
+            "git-repo": "http://code.qt.io/pyside/pyside-setup",
+            "git-ref": "v6.5.2"
         },
         {
             "name":"vtk",
@@ -112,6 +125,11 @@
             "name":"tk",
             "git-repo":"https://github.com/tcltk/tk",
             "git-ref":"core-8-6-13"
+        },
+        {
+            "name": "rapidjson",
+            "git-repo":"https://github.com/Tencent/rapidjson",
+            "git-ref":"v1.1.0"
         },
         {
             "name":"opencascade",

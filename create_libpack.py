@@ -142,11 +142,11 @@ def decompress(name: str, filename: str):
     os.chdir(original_dir)
 
 
-def write_manifest(outer_config: dict, mode):
-    manifest_file = os.path.join(compile_all.libpack_dir(outer_config, mode), "manifest.json")
+def write_manifest(outer_config: dict):
+    manifest_file = os.path.join(compile_all.libpack_dir(outer_config), "manifest.json")
     with open(manifest_file, "w", encoding="utf-8") as f:
         f.write(json.dumps(outer_config["content"]))
-    version_file = os.path.join(compile_all.libpack_dir(outer_config, mode), "FREECAD_LIBPACK_VERSION")
+    version_file = os.path.join(compile_all.libpack_dir(outer_config), "FREECAD_LIBPACK_VERSION")
     with open(version_file, "w", encoding="utf-8") as f:
         f.write(outer_config["LibPack-version"])
 
@@ -169,15 +169,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-e",
-        "--skip-existing-clone",
-        action="store_true",
-        help="If a given clone (or download) directory exists, skip cloning/downloading",
+        "--no-skip-existing-clone",
+        action="store_false",
+        help="If a given clone (or download) directory exists, delete it and download it again",
     )
     parser.add_argument(
         "-b",
-        "--skip-existing-build",
-        action="store_true",
-        help="If a given build directory exists, skip building",
+        "--no-skip-existing-build",
+        action="store_false",
+        help="If a given build already exists, run the build process again anyway",
     )
     parser.add_argument(
         "-s",
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
-    base = compile_all.libpack_dir(config, compile_all.BuildMode.RELEASE)
+    base = compile_all.libpack_dir(config)
     expected_py = os.path.join(base, "bin", "python")
     if sys.platform.startswith("win32"):
         expected_py += ".exe"
@@ -206,16 +206,17 @@ if __name__ == "__main__":
         exit(1)
     os.chdir(args["working"])
 
-    fetch_remote_data(config, args["skip_existing_clone"])
+    fetch_remote_data(config, args["no_skip_existing_clone"])
 
     compiler = compile_all.Compiler(
         config,
-        compile_all.BuildMode.RELEASE,
         bison_path=path_to_bison,
-        skip_existing=args["skip_existing_build"],
+        skip_existing=args["no_skip_existing_build"],
     )
     compiler.init_script = devel_init_script
     compiler.compile_all()
 
-    write_manifest(config, compile_all.BuildMode.RELEASE)
+
+
+    write_manifest(config)
 

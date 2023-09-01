@@ -13,6 +13,7 @@ import platform
 import re
 import shutil
 import subprocess
+import stat
 import sys
 
 
@@ -27,6 +28,13 @@ class BuildMode(Enum):
             return "Release"
         else:
             return "Unknown"
+
+
+def remove_readonly(func, path, _) -> None:
+    """Remove a read-only file."""
+
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 
 def patch_single_file(filename, patch_data) -> None:
@@ -80,80 +88,88 @@ def patch_files(patches: list[str]) -> None:
         apply_patch(patch)
 
 
-def libpack_dir(config: dict, mode: BuildMode):
-    lp_dir = "LibPack-{}-v{}-{}".format(
+def libpack_dir(config: dict):
+    lp_dir = "LibPack-{}-v{}".format(
         config["FreeCAD-version"],
         config["LibPack-version"],
-        str(mode),
     )
     return os.path.join(os.path.dirname(__file__), "working", lp_dir)
 
 
 class Compiler:
-    def __init__(self, config, mode, bison_path, skip_existing: bool = False):
+    def __init__(self, config, bison_path, skip_existing: bool = False):
         self.config = config
-        self.mode = mode
         self.bison_path = bison_path
         self.base_dir = os.getcwd()
         self.skip_existing = skip_existing
-        self.install_dir = libpack_dir(config, mode)
+        self.install_dir = libpack_dir(config)
         self.init_script = None
 
     def get_cmake_options(self) -> list[str]:
         """ Get a comprehensive list of cMake options that can be used in any cMake build. Not all options apply
         to all builds, but none conflict. """
         base = [
-            f"-D BISON_EXECUTABLE={self.bison_path}",
-            f"-D BOOST_ROOT={self.install_dir}",
-            f"-D BUILD_DOC=No",
-            f"-D BUILD_DOCS=No",
-            f"-D BUILD_EXAMPLES=No",
-            f"-D BUILD_SHARED=Yes",
-            f"-D BUILD_SHARED_LIB=Yes",
-            f"-D BUILD_SHARED_LIBS=Yes",
-            f"-D BUILD_TEST=No",
-            f"-D BUILD_TESTS=No",
-            f"-D BUILD_TESTING=No",
-            f"-D BZIP2_DIR={self.install_dir}/lib/cmake/",
-            f"-D Boost_INCLUDE_DIR={self.install_dir}/include/boost-1_83/",
-            f"-D Boost_INCLUDE_DIRS={self.install_dir}/include",
-            f"-D CMAKE_INSTALL_PATH={self.install_dir}",
-            f"-D CMAKE_INSTALL_PREFIX={self.install_dir}",
-            f"-D Coin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1",
-            f"-D HarfBuzz_DIR={self.install_dir}/lib/cmake/",
-            f"-D HDF5_DIR={self.install_dir}/share/cmake/",
-            f"-D HDF5_LIBRARY_DEBUG=LIBPACK/lib/hdf5.lib",
-            f"-D HDF5_LIBRARY_RELEASE=LIBPACK/lib/hdf5.lib",
-            f"-D HDF5_DIFF_EXECUTABLE={self.install_dir}/bin/hdf5diff" + ".exe" if sys.platform.startswith(
-                "win32") else "",
-            f"-D INSTALL_DIR={self.install_dir}",
-            f"-D PCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib",
-            f"-D Python_ROOT_DIR={self.install_dir}/bin",
-            f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
-            f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + ".exe" if sys.platform.startswith("win32") else "",
-            f"-D VTK_MODULE_ENABLE_VTK_IOIOSS=NO",  # Workaround for bug in Visual Studio MSVC 143
-            f"-D VTK_MODULE_ENABLE_VTK_ioss=NO",  # Workaround for bug in Visual Studio MSVC 143
-            f"-D ZLIB_DIR={self.install_dir}/lib/cmake/",
-            f"-D ZLIB_INCLUDE_DIR={self.install_dir}/include",
-            f"-D ZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib." + "lib" if sys.platform.startswith(
-                "win32") else "a",
+            f'-D BISON_EXECUTABLE={self.bison_path}',
+            f'-D BOOST_ROOT={self.install_dir}',
+            f'-D BUILD_DOC=No',
+            f'-D BUILD_DOCS=No',
+            f'-D BUILD_EXAMPLES=No',
+            f'-D BUILD_SHARED=Yes',
+            f'-D BUILD_SHARED_LIB=Yes',
+            f'-D BUILD_SHARED_LIBS=Yes',
+            f'-D BUILD_TEST=No',
+            f'-D BUILD_TESTS=No',
+            f'-D BUILD_TESTING=No',
+            f'-D BZIP2_DIR={self.install_dir}/lib/cmake/',
+            f'-D Boost_INCLUDE_DIR={self.install_dir}/include/boost-1_83/',
+            f'-D Boost_INCLUDE_DIRS={self.install_dir}/include',
+            f'-D CMAKE_INSTALL_PATH={self.install_dir}',
+            f'-D CMAKE_INSTALL_PREFIX={self.install_dir}',
+            f'-D Coin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1',
+            f'-D HarfBuzz_DIR={self.install_dir}/lib/cmake/',
+            f'-D HDF5_DIR={self.install_dir}/share/cmake/',
+            f'-D HDF5_LIBRARY_DEBUG={self.install_dir}/lib/hdf5d.lib',
+            f'-D HDF5_LIBRARY_RELEASE={self.install_dir}/lib/hdf5.lib',
+            f'-D HDF5_DIFF_EXECUTABLE={self.install_dir}/bin/hdf5diff' + '.exe' if sys.platform.startswith(
+                'win32') else '',
+            f'-D INSTALL_DIR={self.install_dir}',
+            f'-D PCRE2_LIBRARY={self.install_dir}/lib/pcre2-8.lib',
+            f'-D Python_ROOT_DIR={self.install_dir}/bin',
+            f'-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6',
+            f'-D SWIG_EXECUTABLE={self.install_dir}/bin/swig' + '.exe' if sys.platform.startswith('win32') else '',
+            f'-D VTK_MODULE_ENABLE_VTK_IOIOSS=NO',  # Workaround for bug in Visual Studio MSVC 143
+            f'-D VTK_MODULE_ENABLE_VTK_ioss=NO',  # Workaround for bug in Visual Studio MSVC 143
+            f'-D ZLIB_DIR={self.install_dir}/lib/cmake/',
+            f'-D ZLIB_INCLUDE_DIR={self.install_dir}/include',
+            f'-D ZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib.' + 'lib' if sys.platform.startswith(
+                'win32') else 'a',
+            f'-D ZLIB_LIBRARY_DEBUG={self.install_dir}/lib/zlibd.' + 'lib' if sys.platform.startswith(
+                'win32') else 'a',
         ]
-        if sys.platform.startswith("win32"):
+        if sys.platform.startswith('win32'):
             inc_path = self.install_dir.replace('\\', '/')
-            cxx_flags = f"/I{inc_path}/include /EHsc /DWIN32"
+            cxx_flags = f'/I{inc_path}/include /EHsc /DWIN32'
         else:
-            cxx_flags = f"-I{self.install_dir}/include"
-        base.append(f"-D CMAKE_CXX_FLAGS={cxx_flags}")
+            cxx_flags = f'-I{self.install_dir}/include'
+        base.append(f'-D CMAKE_CXX_FLAGS={cxx_flags}')
         return base
 
     def compile_all(self):
         for item in self.config["content"]:
             # All build methods are named using "build_XXX" where XXX is the name of the package in the config file
-            print(f"Building {item['name']} in {self.mode} mode")
             os.chdir(item["name"])
             build_function_name = "build_" + item["name"]
-            build_function = getattr(self, build_function_name)
-            build_function(item)
+            if hasattr(self, build_function_name):
+                print(f"Building {item['name']}")
+                build_function = getattr(self, build_function_name)
+                build_function(item)
+            elif "pip-install" in item:
+                print(f"Installing {item['name']} with pip")
+                self._build_with_pip(item)
+            else:
+                print(f"No '{build_function_name}' found in compile_all.py -- "
+                      "did you forget to add one when adding a dependency?")
+                exit(2)
             os.chdir(self.base_dir)
 
     def build_nonexistent(self, _=None):
@@ -176,7 +192,7 @@ class Compiler:
                         "-p",
                         arch,
                         "-c",
-                        str(self.mode),
+                        "Release",
                     ],
                     check=True,
                     capture_output=True,
@@ -230,7 +246,7 @@ class Compiler:
     def build_boost(self, _=None):
         """ Builds boost shared libraries and installs libraries and headers """
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "include", "boost")):
+            if os.path.exists(os.path.join(self.install_dir, "include", "boost-1_83")):
                 print("  Not rebuilding boost, it is already in the LibPack")
                 return
         # Boost uses a custom build system and needs a config file to find our Python
@@ -249,26 +265,24 @@ class Compiler:
             subprocess.run([self.init_script, "&", "bootstrap.bat"], capture_output=True, check=True)
             subprocess.run([self.init_script, "&", "b2",
                             f"install",
-                            f"variant={str(self.mode).lower()}",
                             "address-model=64",
-                            "link=shared",
                             f"--prefix=${self.install_dir}",
-                            "--layout=versioned", # or system
-                            "--build-type=complete"], # or minimal
+                            "--layout=versioned",
+                            "--build-type=complete",
+                            f"stage"],
                            check=True,
                            capture_output=True)
-            #shutil.copytree(os.path.join("stage", "lib"), os.path.join(self.install_dir, "lib"), dirs_exist_ok=True)
-            #shutil.copytree("boost", os.path.join(self.install_dir, "include", "boost"),
-            #                dirs_exist_ok=True)
         except subprocess.CalledProcessError as e:
             print("Error: failed to build boost")
-            print(e.output.decode("utf-8"))
+            print(e.stdout.decode("utf-8"))
+            print(e.stderr.decode("utf-8"))
             exit(e.returncode)
 
-    def _cmake_create_build_dir(self):
-        build_dir = "build-" + str(self.mode).lower()
-        if not os.path.exists(build_dir):
-            os.mkdir(build_dir)
+    def _cmake_create_build_dir(self, variant:BuildMode = BuildMode.RELEASE):
+        build_dir = "build-" + str(variant).lower()
+        if os.path.exists(build_dir):
+            shutil.rmtree(build_dir, onerror=remove_readonly)
+        os.mkdir(build_dir)
         os.chdir(build_dir)
 
     def _run_cmake(self, args):
@@ -278,7 +292,9 @@ class Compiler:
             subprocess.run(cmake_setup_options, check=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             print("ERROR: cMake failed!")
-            print(e.output.decode("utf-8"))
+            print (f"Command: {' '.join(cmake_setup_options)}")
+            print(e.stdout.decode("utf-8"))
+            print(e.stderr.decode("utf-8"))
             exit(e.returncode)
 
     def _cmake_configure(self, extra_args: list[str] = None):
@@ -288,20 +304,26 @@ class Compiler:
         options.append("..")
         self._run_cmake(options)
 
-    def _cmake_build(self):
+    def _cmake_build(self, variant:BuildMode = BuildMode.RELEASE):
         # Not building with --parallel because even with 32gb of RAM, OpenCASCADE runs out of memory on my system
-        cmake_build_options = ["--build", ".", "--config", str(self.mode)]
+        cmake_build_options = ["--build", ".", "--config", str(variant)]
         self._run_cmake(cmake_build_options)
 
-    def _cmake_install(self):
-        cmake_install_options = ["--install", "."]
+    def _cmake_install(self, variant:BuildMode = BuildMode.RELEASE):
+        cmake_install_options = ["--install", ".", "--config", str(variant)]
         self._run_cmake(cmake_install_options)
 
     def _build_standard_cmake(self, extra_args: list[str] = None):
-        self._cmake_create_build_dir()
+        self._cmake_create_build_dir(BuildMode.RELEASE)
         self._cmake_configure(extra_args)
-        self._cmake_build()
-        self._cmake_install()
+        self._cmake_build(BuildMode.RELEASE)
+        self._cmake_install(BuildMode.RELEASE)
+        os.chdir("..")
+        self._cmake_create_build_dir(BuildMode.DEBUG)
+        self._cmake_configure(extra_args)
+        self._cmake_build(BuildMode.DEBUG)
+        self._cmake_install(BuildMode.DEBUG)
+        os.chdir("..")
 
     def _pip_install(self, requirement: str) -> None:
         path_to_python = os.path.join(self.install_dir, "bin", "python")
@@ -317,30 +339,10 @@ class Compiler:
 
     def _build_with_pip(self, options: dict):
         if "pip-install" not in options:
-            print(f"ERROR: No pip-install provided in configuration of {options['name']}, so version cannot be determined")
+            print(
+                f"ERROR: No pip-install provided in configuration of {options['name']}, so version cannot be determined")
             exit(1)
         self._pip_install(options["pip-install"])
-
-    def build_numpy(self, options=None):
-        self._build_with_pip(options)
-
-    def build_scipy(self, options=None):
-        self._build_with_pip(options)
-
-    def build_pillow(self, options=None):
-        self._build_with_pip(options)
-
-    def build_pyyaml(self, options=None):
-        self._build_with_pip(options)
-
-    def build_pycollada(self, options=None):
-        self._build_with_pip(options)
-
-    def build_matplotlib(self, options=None):
-        self._build_with_pip(options)
-
-    def build_opencv(self, options=None):
-        self._build_with_pip(options)
 
     def build_coin(self, _=None):
         """ Builds and installs Coin using standard CMake settings """
@@ -420,15 +422,32 @@ class Compiler:
         shutil.copytree("libclang", self.install_dir, dirs_exist_ok=True)
 
     def build_pyside(self, options=None):
-        """ As of Qt6, pyside is installed using pip """
+        # Don't use a pip-install for this, we need the linkable libraries and include files for both PySide and
+        # Shiboken, which won't get installed by pip
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PySide6")):
                 print("  Not rebuilding PySide6, it is already in the LibPack")
                 return
-        if "pip-install" not in options:
-            print("ERROR: No pip-install provided in configuration of pyside, so version cannot be determined")
+        python = os.path.join(self.install_dir, "bin", "python")
+        qtpaths = "--qtpaths=" + os.path.join(self.install_dir, "bin", "qtpaths6")
+        ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
+        clang = "CLANG_INSTALL_DIR=" + os.path.join(self.install_dir, "lib", "clang")
+        numpy = "--enable-numpy-support"
+        if sys.platform.startswith("win32"):
+            python += ".exe"
+            qtpaths += ".exe"
+            ssl += ".dll"
+            args = [self.init_script, "&", "set", clang, "&", python, "setup.py", "build", qtpaths, ssl, numpy]
+        else:
+            ssl += ".so"
+            args = [clang, "&&", python, "setup.py", "install", qtpaths, ssl, numpy]
+        try:
+            subprocess.run(args, capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print("ERROR: Failed to build Pyside and/or Shiboken")
+            print(e.stdout.decode("utf-8"))
+            print(e.stderr.decode("utf-8"))
             exit(1)
-        self._pip_install(options["pip-install"])
 
     def build_vtk(self, _=None):
         if self.skip_existing:
@@ -482,22 +501,31 @@ class Compiler:
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", str(self.mode).lower()]
-                subprocess.run(args, check=True, capture_output=True)
-                args = [self.init_script,
-                        "&",
-                        "nmake",
-                        "/f",
-                        "makefile.vc",
-                        "install",
-                        f"INSTALLDIR={self.install_dir}"]
-                subprocess.run(args, check=True, capture_output=True)
-                self.force_copy(["bin", "tclsh86t.exe"], ["bin", "tclsh.exe"])
-                self.force_copy(["bin", "tcl86t.dll"], ["bin", "tcl86.dll"])
-                self.force_copy(["lib", "tcl86t.lib"], ["lib", "tcl86.lib"])
+                for variant in [BuildMode.RELEASE, BuildMode.DEBUG]:
+                    args = [self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
+                    if variant == BuildMode.DEBUG:
+                        args.append("OPTS=symbols")
+                    subprocess.run(args, check=True, capture_output=True)
+                    args = [self.init_script,
+                            "&",
+                            "nmake",
+                            "/f",
+                            "makefile.vc",
+                            "install",
+                            f"INSTALLDIR={self.install_dir}"]
+                    subprocess.run(args, check=True, capture_output=True)
+                    if variant == BuildMode.RELEASE:
+                        self.force_copy(["bin", "tclsh86t.exe"], ["bin", "tclsh.exe"]) # Plus some debug? TODO what are they?
+                        self.force_copy(["bin", "tcl86t.dll"], ["bin", "tcl86.dll"])
+                        self.force_copy(["lib", "tcl86t.lib"], ["lib", "tcl86.lib"])
+                    else:
+                        self.force_copy(["bin", "tclsh86t.exe"], ["bin", "tclsh_d.exe"]) # Plus some debug? TODO what are they?
+                        self.force_copy(["bin", "tcl86t.dll"], ["bin", "tcl86_d.dll"])
+                        self.force_copy(["lib", "tcl86t.lib"], ["lib", "tcl86_d.lib"])
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tcl using nmake")
-                print(e.output.decode("utf-8"))
+                print(e.stdout.decode("utf-8"))
+                print(e.stderr.decode("utf-8"))
                 exit(1)
         else:
             raise NotImplemented(
@@ -513,14 +541,22 @@ class Compiler:
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", str(self.mode).lower()]
-                subprocess.run(args, check=True, capture_output=True)
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc ", "install",
-                        f"INSTALLDIR={self.install_dir}"]
-                subprocess.run(args, check=True, capture_output=True)
-                self.force_copy(["bin", "wish86t.exe"], ["bin", "wish.exe"])
-                self.force_copy(["bin", "tk86t.dll"], ["bin", "tk86.dll"])
-                self.force_copy(["lib", "tk86t.lib"], ["lib", "tk86.lib"])
+                for variant in [BuildMode.RELEASE, BuildMode.DEBUG]:
+                    args = [self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
+                    if variant == BuildMode.DEBUG:
+                        args.append("OPTS=symbols")
+                    subprocess.run(args, check=True, capture_output=True)
+                    args = [self.init_script, "&", "nmake", "/f", "makefile.vc ", "install",
+                            f"INSTALLDIR={self.install_dir}"]
+                    subprocess.run(args, check=True, capture_output=True)
+                    if variant == BuildMode.RELEASE:
+                        self.force_copy(["bin", "wish86t.exe"], ["bin", "wish.exe"])  # Plus some debug? TODO what are they?
+                        self.force_copy(["bin", "tk86t.dll"], ["bin", "tk86.dll"])
+                        self.force_copy(["lib", "tk86t.lib"], ["lib", "tk86.lib"])
+                    else:
+                        self.force_copy(["bin", "wish86t.exe"], ["bin", "wish_d.exe"])  # Plus some debug? TODO what are they?
+                        self.force_copy(["bin", "tk86t.dll"], ["bin", "tk86_d.dll"])
+                        self.force_copy(["lib", "tk86t.lib"], ["lib", "tk86_d.lib"])
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tk using nmake")
                 print(e.output.decode("utf-8"))
@@ -530,18 +566,40 @@ class Compiler:
                 "Non-Windows compilation of tk is not implemented yet"
             )
 
+    def build_rapidjson(self, _):
+        if os.path.exists(os.path.join(self.install_dir, "include", "rapidjson")):
+            if self.skip_existing:
+                print("  Not re-copying RapidJSON, it is already in the LibPack")
+                return
+            shutil.rmtree(os.path.join(self.install_dir, "include", "rapidjson"))
+        shutil.copytree("include", os.path.join(self.install_dir, "include"), dirs_exist_ok=True)
+
     def build_opencascade(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake")):
                 print("  Not rebuilding OpenCASCADE, it is already in the LibPack")
                 return
-        extra_args = [f"-D 3RDPARTY_DIR={self.install_dir}",
-                      f"-D 3RDPARTY_VTK_INCLUDE_DIR={self.install_dir}/include/vtk-9.2",  # TODO: Remove hardcoded 9.2
-                      f"-D USE_VTK=On",
-                      f"-D BUILD_CPP_STANDARD=C++17"]
-        if self.mode == BuildMode.DEBUG:
-            extra_args.append("-DBUILD_SHARED_LIBRARY_NAME_POSTFIX=d")
-        self._build_standard_cmake(extra_args=extra_args)
+        for variant in [BuildMode.RELEASE, BuildMode.DEBUG]:
+            extra_args = [f"-D 3RDPARTY_DIR={self.install_dir}",
+                          f"-D 3RDPARTY_VTK_INCLUDE_DIR={self.install_dir}/include/vtk-9.2",  # TODO: Remove hardcoded 9.2
+                          f"-D USE_VTK=On",
+                          f"-D USE_RAPIDJSON=On",
+                          f"-D BUILD_CPP_STANDARD=C++17",
+                          f"-DBUILD_RELEASE_DISABLE_EXCEPTIONS=OFF",
+                          f"-DINSTALL_DIR_BIN=bin",
+                          f"-DINSTALL_DIR_LIB=lib"]
+            if variant == BuildMode.DEBUG:
+                extra_args.append("-DBUILD_SHARED_LIBRARY_NAME_POSTFIX=d")
+            cwd = os.getcwd()
+            self._cmake_create_build_dir(variant)
+            self._cmake_configure(extra_args)
+            self._cmake_build(variant)
+            if variant == BuildMode.DEBUG and sys.platform.startswith("win32"):
+                # On Windows OpenCASCADE is looking in the wrong location for these files (as of 7.7.1) -- just copy them
+                # TODO - Don't hardcode the path
+                shutil.copytree(os.path.join("win64", "vc14", "bind"), os.path.join("win64", "vc14", "bin"))
+            self._cmake_install()
+            os.chdir(cwd)
 
     def build_netgen(self, _: None):
         if self.skip_existing:
@@ -551,14 +609,13 @@ class Compiler:
         extra_args = [f"-DCMAKE_FIND_ROOT_PATH={self.install_dir}",
                       "-D USE_SUPERBUILD=OFF",
                       "-D USE_GUI=OFF",
+                      "-D USE_NATIVE_ARCH=OFF",
                       "-D USE_INTERNAL_TCL=OFF",
                       f"-D TCL_DIR={self.install_dir}",
                       f"-D TK_DIR={self.install_dir}",
                       "-D USE_OCC=On",
                       f"-D OpenCASCADE_ROOT={self.install_dir}",
-                      f"-D USE_PYTHON=On",
-                      "-D PYTHON_EXECUTABLE="
-                      f"{self.install_dir}/bin/python{'.exe' if sys.platform.startswith('win32') else ''}"]
+                      f"-D USE_PYTHON=OFF"]
         self._build_standard_cmake(extra_args=extra_args)
 
     def build_hdf5(self, _: None):
@@ -619,13 +676,14 @@ class Compiler:
         os.chdir(os.path.join("icu4c", "source"))
         if sys.platform.startswith("win32"):
             os.chdir("allinone")
-            args = [self.init_script, "&", "msbuild", f"/p:Configuration={self.mode}",
-                    "/t:Build", "/p:SkipUWP=true", "allinone.sln"]
-            subprocess.run(args, check=True, capture_output=True)
+            for variant in ["Release", "Debug"]:
+                args = [self.init_script, "&", "msbuild", f"/p:Configuration={variant}",
+                        "/t:Build", "/p:SkipUWP=true", "allinone.sln"]
+                subprocess.run(args, check=True, capture_output=True)
+            os.chdir(os.path.join("..", ".."))
             bin_dir = os.path.join(self.install_dir, "bin")
             lib_dir = os.path.join(self.install_dir, "lib")
             inc_dir = os.path.join(self.install_dir, "include")
-            os.chdir(os.path.join("..", ".."))
             shutil.copytree(f"bin64", bin_dir, dirs_exist_ok=True)
             shutil.copytree(f"lib64", lib_dir, dirs_exist_ok=True)
             shutil.copytree(f"include", inc_dir, dirs_exist_ok=True)

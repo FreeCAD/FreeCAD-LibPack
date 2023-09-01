@@ -6,15 +6,13 @@ import json
 import os
 import sys
 
-from compile_all import BuildMode
-
 """  """
 
 def parse_args() -> dict:
     if len(sys.argv) > 3:
         usage()
         exit(1)
-    new_config_dict = {"mode": BuildMode.RELEASE, "config_file": "config.json"}
+    new_config_dict = {"config_file": "config.json"}
     for arg in sys.argv[1:]:
         key, value = extract_arg(arg)
         new_config_dict[key] = value
@@ -22,32 +20,29 @@ def parse_args() -> dict:
 
 
 def extract_arg(arg) -> tuple[str, object]:
-    if arg.lower() in ["release", "debug"]:
-        return "mode", BuildMode.RELEASE if arg.lower() == "release" else BuildMode.DEBUG
     return "config_file", arg
 
 
 def usage():
     print("Used to create the base LibPack directory that you will then manually install Python into")
-    print("Usage: python bootstrap.py [config_file] [release|debug]")
+    print("Usage: python bootstrap.py [config_file]")
     print()
-    print('Result: A new working/LibPack-XX-YY-MM directory has been created')
+    print('Result: A new working/LibPack-XX-YY directory has been created')
 
 def print_next_step():
-    print('Next step: install Python into working/LibPack-XX-YY-MM/bin, then run:')
-    print('  .\\working\\LibPack-XX-YY-MM\\bin\\python create_libpack.py')
-    print('(where XX, YY, and MM change according to the config and inputs)')
+    print('Next step: install Python into working/LibPack-XX-YY/bin, then run:')
+    print('  .\\working\\LibPack-XX-YY\\bin\\python create_libpack.py')
+    print('(where XX, YY change according to the config)')
 
 
-def create_libpack_dir(config: dict, mode: BuildMode) -> str:
+def create_libpack_dir(config: dict) -> str:
     """Create a new directory for this LibPack compilation, using the version of FreeCAD, the version of
-    the LibPack, and whether it's in release or debug mode. Returns the name of the created directory.
+    the LibPack. Returns the name of the created directory.
     """
 
-    dirname = "LibPack-{}-v{}-{}".format(
+    dirname = "LibPack-{}-v{}".format(
         config["FreeCAD-version"],
-        config["LibPack-version"],
-        str(mode),
+        config["LibPack-version"]
     )
     if os.path.exists(dirname):
         backup_name = dirname + "-backup-" + "a"
@@ -75,5 +70,5 @@ if __name__ == "__main__":
     config_dict = json.loads(config_data)
     os.makedirs("working", exist_ok=True)
     os.chdir("working")
-    create_libpack_dir(config_dict, args["mode"])
+    create_libpack_dir(config_dict)
     print_next_step()
