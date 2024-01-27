@@ -15,6 +15,16 @@ import sys
 #   * Qt - the base installation plus Qt Image Formats, Qt Webengine, Qt Webview, and Qt PDF
 #   * GNU Bison (for Windows see https://github.com/lexxmark/winflexbison/)
 
+# Note about Python: Python includes the following dependencies when built on Windows (as of v3.11.5)
+#   bzip2-1.0.8
+#   sqlite-3.42.0.0
+#   xz-5.2.5
+#   zlib-1.2.13
+#   libffi-3.4.4
+#   openssl-bin-3.0.9
+#   tcltk-8.6.12.1
+# At present these are not re-used
+
 import argparse
 import json
 import os
@@ -73,6 +83,29 @@ def load_config(path: str) -> dict:
         except json.JSONDecodeError:
             print("ERROR: The config file does not contain valid JSON data")
             exit(1)
+
+
+def create_libpack_dir(config: dict, mode: compile_all.BuildMode) -> str:
+    """Create a new directory for this LibPack compilation, using the version of FreeCAD, the version of
+    the LibPack, and whether it's in release or debug mode. Returns the name of the created directory.
+    """
+
+    dirname = compile_all.libpack_dir(config, mode)
+    if os.path.exists(dirname):
+        backup_name = dirname + "-backup-" + "a"
+        while os.path.exists(backup_name):
+            if backup_name[-1] == "z":
+                print("You have too many old LibPack backup directories. Please delete some of them.")
+                exit(1)
+            backup_name = backup_name[:-1] + chr(ord(backup_name[-1]) + 1)
+
+        os.rename(dirname, backup_name)
+    if not os.path.exists(dirname):
+        os.mkdir(dirname)
+    dirname = os.path.join(dirname, "bin")
+    if not os.path.exists(dirname):
+        os.mkdir(dirname)
+    return dirname
 
 
 def fetch_remote_data(config: dict, skip_existing: bool = False):
@@ -142,11 +175,11 @@ def decompress(name: str, filename: str):
     os.chdir(original_dir)
 
 
-def write_manifest(outer_config: dict):
-    manifest_file = os.path.join(compile_all.libpack_dir(outer_config), "manifest.json")
+def write_manifest(outer_config: dict, mode_used: compile_all.BuildMode):
+    manifest_file = os.path.join(compile_all.libpack_dir(outer_config, mode_used), "manifest.json")
     with open(manifest_file, "w", encoding="utf-8") as f:
-        f.write(json.dumps(outer_config["content"]))
-    version_file = os.path.join(compile_all.libpack_dir(outer_config), "FREECAD_LIBPACK_VERSION")
+        f.write(json.dumps(outer_config["content"], indent="    "))
+    version_file = os.path.join(compile_all.libpack_dir(outer_config, mode_used), "FREECAD_LIBPACK_VERSION")
     with open(version_file, "w", encoding="utf-8") as f:
         f.write(outer_config["LibPack-version"])
 
@@ -154,6 +187,12 @@ def write_manifest(outer_config: dict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Builds a collection of FreeCAD dependencies for the current system"
+    )
+    parser.add_argument(
+        "-m",
+        "--mode",
+        help="'release' or 'debug''",
+        default="release",
     )
     parser.add_argument(
         "-c",
@@ -192,31 +231,31 @@ if __name__ == "__main__":
     parser.add_argument("path-to-final-libpack-dir", nargs="?", default="./")
     args = vars(parser.parse_args())
 
-    config = load_config(args["config"])
+    config_dict = load_config(args["config"])
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
-    base = compile_all.libpack_dir(config)
-    expected_py = os.path.join(base, "bin", "python")
-    if sys.platform.startswith("win32"):
-        expected_py += ".exe"
-    if not os.path.exists(expected_py):
-        print(f"ERROR: Could not find Python at {expected_py}")
-        print("Run the bootstrap.py script and then install Python into the created 'bin' directory")
-        exit(1)
-    os.chdir(args["working"])
+    os.makedirs("working", exist_ok=True)
+    os.chdir("working")
+    mode = compile_all.BuildMode.DEBUG if args["mode"].lower() == "debug" else compile_all.BuildMode.RELEASE
+    if args["no_skip_existing_clone"]:
+        dirname = compile_all.libpack_dir(config_dict, mode)
+        if not os.path.exists(dirname):
+            base = create_libpack_dir(config_dict, mode)
+        else:
+            base = dirname
+    else:
+        base = create_libpack_dir(config_dict, mode)
 
-    fetch_remote_data(config, args["no_skip_existing_clone"])
+    fetch_remote_data(config_dict, args["no_skip_existing_clone"])
 
     compiler = compile_all.Compiler(
-        config,
+        config_dict,
         bison_path=path_to_bison,
         skip_existing=args["no_skip_existing_build"],
+        mode=mode
     )
     compiler.init_script = devel_init_script
     compiler.compile_all()
 
-
-
-    write_manifest(config)
-
+    write_manifest(config_dict, mode)
