@@ -42,7 +42,7 @@ except ImportError:
 try:
     import diff_match_patch
 except ImportError:
-    print("Please pip --install diff_match_patch")
+    print("Please pip --install diff-match-patch")
     exit(1)
 
 import compile_all
