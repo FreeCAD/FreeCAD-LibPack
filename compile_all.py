@@ -127,6 +127,11 @@ class Compiler:
         self.init_script = None
         self.mode = mode
 
+        # Right now there are two packages where the version number gets coded into the path when: Boost and Coin:
+        # store those two separately from all the other paths we have to track
+        self.boost_include_path = None
+        self.coin_cmake_path = None
+
     def get_cmake_options(self) -> List[str]:
         """ Get a comprehensive list of cMake options that can be used in any cMake build. Not all options apply
         to all builds, but none conflict. """
@@ -136,6 +141,8 @@ class Compiler:
         pcre_lib += to_static()
 
         base = [
+            '-D CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE',  # Never use system packages, always use only the libpack
+            '-D CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY=TRUE',  # Same as above?
             f'-D BISON_EXECUTABLE={self.bison_path}',
             f'-D BOOST_ROOT={self.install_dir}',
             f'-D BUILD_DOC=No',
@@ -148,12 +155,10 @@ class Compiler:
             f'-D BUILD_TESTS=No',
             f'-D BUILD_TESTING=No',
             f'-D BZIP2_DIR={self.install_dir}/lib/cmake/',
-            f'-D Boost_INCLUDE_DIR={self.install_dir}/include/boost-1_83/', # TODO Remove hardcoded version
             f'-D Boost_INCLUDE_DIRS={self.install_dir}/include',
             f'-D CMAKE_BUILD_TYPE={self.mode}',
             f'-D CMAKE_INSTALL_PATH={self.install_dir}',
             f'-D CMAKE_INSTALL_PREFIX={self.install_dir}',
-            f'-D Coin_DIR={self.install_dir}/lib/cmake/Coin-4.0.1',
             f'-D HarfBuzz_DIR={self.install_dir}/lib/cmake/',
             f'-D HDF5_DIR={self.install_dir}/share/cmake/',
             f'-D HDF5_LIBRARY_DEBUG={self.install_dir}/lib/hdf5d.lib',
@@ -161,6 +166,7 @@ class Compiler:
             f'-D HDF5_DIFF_EXECUTABLE={self.install_dir}/bin/hdf5diff' + to_exe(),
             f'-D INSTALL_DIR={self.install_dir}',
             f'-D PCRE2_LIBRARY={pcre_lib}',
+            '-D PIVY_USE_QT6=Yes',
             f'-D Python_ROOT_DIR={self.install_dir}/bin',
             f'-D Python_DIR={self.install_dir}/bin',
             '-D Python_FIND_REGISTRY=NEVER',
@@ -172,10 +178,17 @@ class Compiler:
             f'-D ZLIB_INCLUDE_DIR={self.install_dir}/include',
             f'-D ZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib' + to_static(),
             f'-D ZLIB_LIBRARY_DEBUG={self.install_dir}/lib/zlibd' + to_static(),
+            '-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True',  # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
+        if self.boost_include_path:
+            base.append(f'-D Boost_INCLUDE_DIR={self.boost_include_path}')
+        if self.coin_cmake_path:
+            base.append(f'-D Coin_DIR={self.coin_cmake_path}')
         if sys.platform.startswith('win32'):
             inc_path = self.install_dir.replace('\\', '/')
-            cxx_flags = f'/I{inc_path}/include /EHsc /DWIN32'
+            cxx_flags = f'/I{inc_path}/include /EHsc /DWIN32 /Zc:__cplusplus /std:c++17 /permissive-'
+            # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against Qt
+            # The same is true for /Zc:__cplusplus /std:c++17
         else:
             cxx_flags = f'-I{self.install_dir}/include'
         base.append(f'-D CMAKE_CXX_FLAGS={cxx_flags}')
@@ -249,7 +262,7 @@ class Compiler:
             os.makedirs(libs_dir, exist_ok=True)
             os.makedirs(bin_dir, exist_ok=True)
             os.makedirs(tools_dir, exist_ok=True)
-            tools_subs = ["i18n", "scripts", "demo"]
+            tools_subs = ["i18n", "scripts"]
             for sub in tools_subs:
                 os.makedirs(os.path.join(tools_dir, sub), exist_ok=True)
 
@@ -343,7 +356,7 @@ class Compiler:
     def build_pip(self, _=None):
         path_to_python = self.python_exe()
         try:
-            subprocess.run([path_to_python, "-m", "ensurepip"], capture_output=True, check=True)
+            subprocess.run([path_to_python, "-m", "ensurepip", "--upgrade"], capture_output=True, check=True)
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to run LibPack's Python executable")
             print(e.stdout.decode("utf-8"))
@@ -366,7 +379,8 @@ class Compiler:
     def build_boost(self, _=None):
         """ Builds boost shared libraries and installs libraries and headers """
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "include", "boost-1_83")):
+            self._configure_boost_version()
+            if self.boost_include_path is not None:
                 print("  Not rebuilding boost, it is already in the LibPack")
                 return
         # Boost uses a custom build system and needs a config file to find our Python
@@ -377,7 +391,7 @@ class Compiler:
             inc_dir = os.path.join(self.install_dir, "bin", "include").replace("\\", "\\\\")
             lib_dir = os.path.join(self.install_dir, "bin", "libs").replace("\\", "\\\\")
             python_version = self.get_python_version()
-            full_version = python_version + "d" if self.mode == BuildMode.DEBUG else ""
+            full_version = python_version + ("d" if self.mode == BuildMode.DEBUG else "")
             print(f"  (boost-python is being built against Python {full_version})")
             user_config.write(f'using python : {python_version} ')
             user_config.write(f': "{exe}" ')
@@ -388,21 +402,22 @@ class Compiler:
             user_config.write(";\n")
         try:
             # When debugging on the command line, add --debug-configuration to get more verbose output
-            subprocess.run([self.init_script, "&", "bootstrap.bat"], capture_output=True, check=True)
+            install_dir = self.install_dir
+            subprocess.run([self.init_script, "&", "bootstrap.bat", f"--prefix={install_dir}"], capture_output=True, check=True)
             subprocess.run([self.init_script, "&", "b2",
                             f"install",
                             "address-model=64",
                             "link=static,shared",
                             str(self.mode).lower(),
-                            "python-debugging=" + "on" if self.mode == BuildMode.DEBUG else "off",
-                            f"--prefix=${self.install_dir}",
+                            "python-debugging=" + ("on" if self.mode == BuildMode.DEBUG else "off"),
+                            f"--prefix={install_dir}",
                             "--layout=versioned",
+                            "--without-mpi",
+                            "--without-graph_parallel",
                             "--build-type=complete",
-                            f"stage"],
+                            "--debug-configuration"],
                            check=True,
                            capture_output=True)
-            # NOTE: I get an error when running this here, but when I run what I believe is the same command from a
-            # command line, it works fine.
         except subprocess.CalledProcessError as e:
             # Boost is too verbose in its output to be of much use un-processed. Dump it all to a file, and
             # then print only the lines with the word "error" on them to stdout
@@ -415,6 +430,16 @@ class Compiler:
                     # Lots of these lines are just files with the word 'error' in them, maybe there is a better filter?
                     print(line)
             exit(e.returncode)
+        self._configure_boost_version()
+
+    def _configure_boost_version(self):
+        """ Once Boost has been installed, figure out what version it was and set up the correct include path """
+        start_crawl_at = os.path.join(self.install_dir, "include")
+        contents = [f for f in os.listdir(start_crawl_at) if os.path.isdir(os.path.join(start_crawl_at, f))]
+        for item in contents:
+            if item.startswith("boost"):
+                self.boost_include_path = os.path.join(start_crawl_at, item)
+                break
 
     def _cmake_create_build_dir(self):
         build_dir = "build-" + str(self.mode).lower()
@@ -439,7 +464,7 @@ class Compiler:
         options = self.get_cmake_options()
         if extra_args:
             options.extend(extra_args)
-        options.append("..")
+        options.append("..")  # Because the source code is located one directory up from our build location
         self._run_cmake(options)
 
     def _cmake_build(self, parallel: bool = True):
@@ -477,11 +502,22 @@ class Compiler:
     def build_coin(self, _=None):
         """ Builds and installs Coin using standard CMake settings """
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "share", "Coin")):
+            self._configure_coin_cmake_path()
+            if self.coin_cmake_path is not None:
                 print("  Not rebuilding Coin, it is already in the LibPack")
                 return
-        extra_args = ["-DCOIN_BUILD_TESTS=Off"]
+        extra_args = ["-D COIN_BUILD_TESTS=Off"]
         self._build_standard_cmake(extra_args)
+        self._configure_coin_cmake_path()
+
+    def _configure_coin_cmake_path(self):
+        """ Coin installs its cMake file into a directory named with the full version, so figure out what that is """
+        start_crawl_at = os.path.join(self.install_dir, "lib", "cmake")
+        contents = [f for f in os.listdir(start_crawl_at) if os.path.isdir(os.path.join(start_crawl_at, f))]
+        for item in contents:
+            if item.startswith("Coin"):
+                self.coin_cmake_path = os.path.join(start_crawl_at, item)
+                break
 
     def build_quarter(self, _=None):
         """ Builds and installs Quarter using standard CMake settings """
@@ -541,9 +577,8 @@ class Compiler:
                 return
         self._build_standard_cmake()
         if self.mode == BuildMode.DEBUG:
-            base = os.path.join(self.install_dir,"bin","Lib","site-packages","pivy")
+            base = os.path.join(self.install_dir, "bin", "Lib", "site-packages", "pivy")
             os.rename(os.path.join(base, "_coin.pyd"), os.path.join(base, "_coin_d.pyd"))
-
 
     def build_libclang(self, _=None):
         """ libclang is provided as a platform-specific download by Qt. """
@@ -715,19 +750,38 @@ class Compiler:
             shutil.rmtree(os.path.join(self.install_dir, "include", "rapidjson"))
         shutil.copytree("include", os.path.join(self.install_dir, "include"), dirs_exist_ok=True)
 
+    def _get_vtk_include_path(self) ->str:
+        """
+        OpenCASCADE needs a manually-set include path for VTK (the find_package script provided by VTK does not provide
+        the include file path, and OpenCASCADE has not been updated to handle this, as of June 2024).
+        """
+        start_crawl_at = os.path.join(self.install_dir, "include")
+        contents = [f for f in os.listdir(start_crawl_at) if os.path.isdir(os.path.join(start_crawl_at, f))]
+        for item in contents:
+            if item.startswith("vtk-"):
+                return os.path.join(start_crawl_at, item)
+        raise RuntimeError("Could not find VTK include directory for OpenCASCADE")
+
     def build_opencascade(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake")):
                 print("  Not rebuilding OpenCASCADE, it is already in the LibPack")
                 return
-        extra_args = [f"-D 3RDPARTY_DIR={self.install_dir}",
-                      f"-D 3RDPARTY_VTK_INCLUDE_DIR={self.install_dir}/include/vtk-9.2",  # TODO: Remove hardcoded 9.2
-                      f"-D USE_VTK=On",
-                      f"-D USE_RAPIDJSON=On",
-                      f"-D BUILD_CPP_STANDARD=C++17",
-                      f"-D BUILD_RELEASE_DISABLE_EXCEPTIONS=OFF",
-                      f"-D INSTALL_DIR_BIN=bin",
-                      f"-D INSTALL_DIR_LIB=lib"]
+        extra_args = [f"-D CMAKE_MODULE_PATH={self.install_dir}/lib/cmake;{self.install_dir}/share/cmake;{self.install_dir}"
+                      f"-D TCL_DIR={self.install_dir}/include",
+                      f"-D TK_DIR={self.install_dir}/include",
+                      f"-D FREETYPE_DIR={self.install_dir}/lib/cmake",
+                      f"-D VTK_DIR={self.install_dir}/lib/cmake",
+                      f"-D 3RDPARTY_VTK_INCLUDE_DIRS={self._get_vtk_include_path()}",
+                      f"-D EIGEN_DIR={self.install_dir}/share/eigen3/cmake",
+                      "-D USE_VTK=On",
+                      "-D USE_FREETYPE=On"
+                      "-D USE_RAPIDJSON=On",
+                      "-D USE_EIGEN=On"
+                      "-D BUILD_CPP_STANDARD=C++17",
+                      "-D BUILD_RELEASE_DISABLE_EXCEPTIONS=OFF",
+                      "-D INSTALL_DIR_BIN=bin",
+                      "-D INSTALL_DIR_LIB=lib"]
         if self.mode == BuildMode.DEBUG:
             extra_args.append("-D BUILD_SHARED_LIBRARY_NAME_POSTFIX=d")
         cwd = os.getcwd()
@@ -744,7 +798,7 @@ class Compiler:
 
         # TODO - something is getting messed up in the CMake config output (note the quotes around 26812): for now just
         # drop the line entirely
-        # set (OpenCASCADE_CXX_FLAGS    "/IG:/FreeCAD/FreeCAD-LibPack-chennes/working/LibPack-0.22-v3.0.0-Debug/include /EHa  /fp:precise /fp:precise /wd"26812" /MP /W4")
+        # set (OpenCASCADE_CXX_FLAGS    "[...] /wd"26812" /MP /W4")
         with open(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake"), "r", encoding="utf-8") as f:
             occt_cmake_contents = f.readlines()
         with open(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake"), "w", encoding="utf-8") as f:
@@ -766,7 +820,8 @@ class Compiler:
                       f"-D TK_DIR={self.install_dir}",
                       "-D USE_OCC=On",
                       f"-D OpenCASCADE_ROOT={self.install_dir}",
-                      f"-D USE_PYTHON=OFF"]
+                      f"-D USE_PYTHON=OFF",
+                      f"-D CMAKE_CXX_FLAGS=-D_USE_MATH_DEFINES"]  # To get M_PI on MSVC
         self._build_standard_cmake(extra_args=extra_args)
 
     def build_hdf5(self, _: None):
@@ -843,7 +898,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "xercesc")):
                 print("  Not rebuilding xerces-c, it is already in the LibPack")
                 return
-        extra_args = [f"-D ICU_INCLUDE_DIR={self.install_dir}/include/unicode",
+        extra_args = [f"-D ICU_INCLUDE_DIR={self.install_dir}/include",
                       f"-D ICU_ROOT={self.install_dir}",
                       f"-D ICU_UC_DIR={self.install_dir}"]
         self._build_standard_cmake(extra_args)

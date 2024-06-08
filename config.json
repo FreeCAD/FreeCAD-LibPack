@@ -1,5 +1,5 @@
 {
-    "FreeCAD-version":"0.22",
+    "FreeCAD-version":"1.0.0",
     "LibPack-version":"3.0.0",
     "content": [
         {
@@ -49,7 +49,7 @@
         },
         {
             "name":"cmake",
-            "pip-install":"cmake==3.29.4"
+            "pip-install":"cmake==3.29.3"
         },
         {
             "name":"zlib",
@@ -113,7 +113,8 @@
         {
             "name":"vtk",
             "git-repo":"https://gitlab.kitware.com/vtk/vtk.git",
-            "git-ref":"v9.3.0"
+            "git-ref":"v9.3.0",
+            "patches": ["patches/vtk-01-add-missing-typename.patch", "patches/vtk-02-add_cast_to_specific_type.patch"]
         },
         {
             "name":"harfbuzz",
@@ -141,6 +142,11 @@
             "git-ref":"v1.1.0"
         },
         {
+            "name":"eigen3",
+            "git-repo":"https://gitlab.com/libeigen/eigen",
+            "git-ref":"3.4.0"
+        },
+        {
             "name":"opencascade",
             "git-repo":"https://gitlab.com/blobfish/occt",
             "git-ref":"V7_8_0_BF"
@@ -148,8 +154,7 @@
         {
             "name":"netgen",
             "git-repo":"https://github.com/NGSolve/netgen",
-            "git-ref":"v6.2.2403",
-            "patches":["patches/netgen-01-compiler_bug_workaround_msvc14_std_atomic.patch"]
+            "git-ref":"v6.2.2403"
         },
         {
             "name":"hdf5",
@@ -159,12 +164,13 @@
         {
             "name":"medfile",
             "git-repo":"https://github.com/chennes/med",
-            "git-ref":"v4.1.1"
+            "git-ref":"v4.1.1",
+            "patches": ["patches/medfile-01-const_cast_argv.patch"]
         },
         {
             "name":"gmsh",
             "git-repo":"https://gitlab.onelab.info/gmsh/gmsh",
-            "git-ref":"gmsh_4_11_1"
+            "git-ref":"gmsh_4_13_1"
         },
         {
             "name":"pycxx",
@@ -174,7 +180,8 @@
         {
             "name":"icu",
             "git-repo":"https://github.com/unicode-org/icu",
-            "git-ref":"release-75-1"
+            "git-ref":"release-74-2",
+            "note":"Cannot yet use the 75.x series, compilation of Xerces 3.2.5 fails against them"
         },
         {
             "name":"xercesc",
@@ -185,11 +192,6 @@
             "name":"libfmt",
             "git-repo":"https://github.com/fmtlib/fmt",
             "git-ref":"10.2.1"
-        },
-        {
-            "name":"eigen3",
-            "git-repo":"https://gitlab.com/libeigen/eigen",
-            "git-ref":"3.4.0"
         },
         {
             "name": "yamlcpp",

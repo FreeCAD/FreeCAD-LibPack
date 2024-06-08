@@ -16,14 +16,14 @@ import sys
 #   * GNU Bison (for Windows see https://github.com/lexxmark/winflexbison/)
 
 # Note about Python: Python includes the following dependencies when built on Windows (as of v3.11.5)
-#   bzip2-1.0.8
-#   sqlite-3.42.0.0
-#   xz-5.2.5
-#   zlib-1.2.13
-#   libffi-3.4.4
-#   openssl-bin-3.0.9
-#   tcltk-8.6.12.1
-# At present these are not re-used
+#   bzip2
+#   sqlite
+#   xz
+#   zlib
+#   libffi
+#   openssl-bin
+#   tcltk
+# At present these are not re-used to create the rest of the LibPack -- if needed, they are rebuilt from source
 
 import argparse
 import json
