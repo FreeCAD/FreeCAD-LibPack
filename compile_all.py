@@ -924,3 +924,11 @@ class Compiler:
                 return
         extra_args = ["-D YAML_BUILD_SHARED_LIBS=ON"]
         self._build_standard_cmake(extra_args)
+
+    def build_opencamlib(self, _:None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "opencamlib")):
+                print("  Not rebuilding opencamlib, it is already in the LibPack")
+                return
+        extra_args = ["-D CXX_LIB=ON"]
+        self._build_standard_cmake(extra_args)

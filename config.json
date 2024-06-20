@@ -52,6 +52,10 @@
             "pip-install":"cmake==3.29.3"
         },
         {
+            "name":"ifcopenshell",
+            "pip-install":"ifcopenshell==0.7.0.240521"
+        },
+        {
             "name":"zlib",
             "git-repo":"https://github.com/madler/zlib",
             "git-ref":"v1.3"
@@ -197,6 +201,11 @@
             "name": "yamlcpp",
             "git-repo": "https://github.com/jbeder/yaml-cpp",
             "git-ref":"0.8.0"
+        },
+        {
+            "name": "opencamlib",
+            "git-repo": "https://github.com/aewallin/opencamlib",
+            "git-ref": "2023.01.11"
         }
     ]
 }
