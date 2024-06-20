@@ -95,7 +95,9 @@ def create_libpack_dir(config: dict, mode: compile_all.BuildMode) -> str:
         backup_name = dirname + "-backup-" + "a"
         while os.path.exists(backup_name):
             if backup_name[-1] == "z":
-                print("You have too many old LibPack backup directories. Please delete some of them.")
+                print(
+                    "You have too many old LibPack backup directories. Please delete some of them."
+                )
                 exit(1)
             backup_name = backup_name[:-1] + chr(ord(backup_name[-1]) + 1)
 
@@ -179,7 +181,9 @@ def write_manifest(outer_config: dict, mode_used: compile_all.BuildMode):
     manifest_file = os.path.join(compile_all.libpack_dir(outer_config, mode_used), "manifest.json")
     with open(manifest_file, "w", encoding="utf-8") as f:
         f.write(json.dumps(outer_config["content"], indent="    "))
-    version_file = os.path.join(compile_all.libpack_dir(outer_config, mode_used), "FREECAD_LIBPACK_VERSION")
+    version_file = os.path.join(
+        compile_all.libpack_dir(outer_config, mode_used), "FREECAD_LIBPACK_VERSION"
+    )
     with open(version_file, "w", encoding="utf-8") as f:
         f.write(outer_config["LibPack-version"])
 
@@ -225,9 +229,7 @@ if __name__ == "__main__":
         help="I kow what I'm doing, don't ask me any questions",
     )
     parser.add_argument("--7zip", help="Path to 7-zip executable", default=path_to_7zip)
-    parser.add_argument(
-        "--bison", help="Path to Bison executable", default=path_to_bison
-    )
+    parser.add_argument("--bison", help="Path to Bison executable", default=path_to_bison)
     parser.add_argument("path-to-final-libpack-dir", nargs="?", default="./")
     args = vars(parser.parse_args())
 
@@ -237,7 +239,11 @@ if __name__ == "__main__":
 
     os.makedirs("working", exist_ok=True)
     os.chdir("working")
-    mode = compile_all.BuildMode.DEBUG if args["mode"].lower() == "debug" else compile_all.BuildMode.RELEASE
+    mode = (
+        compile_all.BuildMode.DEBUG
+        if args["mode"].lower() == "debug"
+        else compile_all.BuildMode.RELEASE
+    )
     if args["no_skip_existing_clone"]:
         dirname = compile_all.libpack_dir(config_dict, mode)
         if not os.path.exists(dirname):
@@ -253,7 +259,7 @@ if __name__ == "__main__":
         config_dict,
         bison_path=path_to_bison,
         skip_existing=args["no_skip_existing_build"],
-        mode=mode
+        mode=mode,
     )
     compiler.init_script = devel_init_script
     compiler.compile_all()

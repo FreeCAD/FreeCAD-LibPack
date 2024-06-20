@@ -5,7 +5,9 @@ import sys
 
 
 def print_usage():
-    print("Generate a patchfile that can be used with the create_libpack.py script to patch source files")
+    print(
+        "Generate a patchfile that can be used with the create_libpack.py script to patch source files"
+    )
     print("Usage: python generate_patch.py original_file corrected_file output_patch_file")
 
 

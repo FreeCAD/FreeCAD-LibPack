@@ -12,12 +12,12 @@ paths_to_delete = [
     "env.bat",
     "draw.bat",
     "RELEASE.txt",
-    ]
+]
 
 
 def delete_extraneous_files(base_path: str) -> None:
     """Delete each of the files listed above from the path specified in base_path. Failure to delete a file does not
-     constitute a fatal error."""
+    constitute a fatal error."""
     if not os.path.exists(base_path):
         raise RuntimeError(f"{base_path} does not exist")
     if not os.path.isdir(base_path):
@@ -41,7 +41,7 @@ def remove_local_path_from_cmake_files(base_path: str) -> None:
 
 
 def remove_local_path_from_cmake_file(base_path: str, file_to_clean: str) -> None:
-    """ Modify a cMake file to remove base_path and replace it with ${CMAKE_CURRENT_SOURCE_DIR} -- WARNING: effectively
+    """Modify a cMake file to remove base_path and replace it with ${CMAKE_CURRENT_SOURCE_DIR} -- WARNING: effectively
     edits the file in-place, no backup is made."""
     depth_string = create_depth_string(base_path, file_to_clean)
     with open(file_to_clean, "r", encoding="UTF-8") as f:
@@ -63,4 +63,3 @@ def create_depth_string(base_path: str, file_to_clean: str) -> str:
     directories_in_base = len(base_path.split(os.path.sep))
     num_steps_up = directories_to_file - directories_in_base
     return "../" * num_steps_up  # For use in cMake, so always a forward slash here
-

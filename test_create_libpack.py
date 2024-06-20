@@ -46,9 +46,7 @@ class TestDeleteExisting(unittest.TestCase):
         self.assertFalse(os.path.exists(dir_to_delete))
 
     @patch("builtins.input")
-    def test_with_directory_not_silent_asks_for_confirmation(
-        self, mock_input: MagicMock
-    ):
+    def test_with_directory_not_silent_asks_for_confirmation(self, mock_input: MagicMock):
         """When not in silent mode, the user is asked to confirm"""
         dir_to_delete = os.path.join(self.temp_dir.name, "existing_dir")
         os.mkdir(dir_to_delete)
@@ -94,9 +92,7 @@ class TestLoadConfig(unittest.TestCase):
     def test_non_existent_file_prints_error(self, mock_print: MagicMock):
         """If a non-existent file is given, an error is printed (and exit() is called)"""
         with self.assertRaises(SystemExit):
-            create_libpack.load_config(
-                os.path.join(self.temp_dir.name, "no_such_file.json")
-            )
+            create_libpack.load_config(os.path.join(self.temp_dir.name, "no_such_file.json"))
         mock_print.assert_called_once()
 
     @patch("builtins.print")
@@ -213,16 +209,12 @@ class TestRemoteFetchFunctions(unittest.TestCase):
     def test_download_creates_file(self, decompress_mock: MagicMock, _1, _2):
         with patch("builtins.open", mock_open()) as open_mock:
             create_libpack.download("make_this_dir", "https://some.url/test.7z")
-            open_mock.assert_called_once_with(
-                os.path.join("make_this_dir", "test.7z"), "wb"
-            )
+            open_mock.assert_called_once_with(os.path.join("make_this_dir", "test.7z"), "wb")
         decompress_mock.assert_called_once_with("make_this_dir", "test.7z")
 
     @patch("os.chdir")
     @patch("subprocess.run")
-    def test_decompress_calls_subprocess(
-        self, run_mock: MagicMock, chdir_mock: MagicMock
-    ):
+    def test_decompress_calls_subprocess(self, run_mock: MagicMock, chdir_mock: MagicMock):
         create_libpack.decompress("path_to_file", "file_name")
         run_mock.assert_called_once()
         self.assertEqual(chdir_mock.call_count, 2)

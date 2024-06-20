@@ -16,14 +16,14 @@ To build the LibPack locally, you will need the following:
  * The "requests" Python package (e.g. 'pip install requests')
  * The "diff-match-patch" Python package (e.g. 'pip install diff-match-patch')
  * Qt - the base installation plus Qt Image Formats, Qt Webengine, Qt Webview, and Qt PDF
-    * NOTE: The two Web requirements will be dropped from the LibPack before it is released 
+    * NOTE: The two Web requirements will be dropped from the LibPack before it is released
  * GNU Bison (for Windows see https://github.com/lexxmark/winflexbison/)
 
-With those pieces in place, the next step is to configure the contents of the LibPack by editing `config.json`. This file 
+With those pieces in place, the next step is to configure the contents of the LibPack by editing `config.json`. This file
 lists the source for each LibPack component. Depending on the component, there are three different ways it might be included:
 1) Source code checked out from a git repository and built using the local compiler toolchain
 1) A pip package installed to the LibPack directory using the LibPack's Python interpreter
-   * Note that `pip` itself is installed using the `ensure_pip` Python module 
+   * Note that `pip` itself is installed using the `ensure_pip` Python module
 1) Files copied from a local source
 
 The JSON file just lists out the sources and versions: beyond specifying which method is used for the installation by setting

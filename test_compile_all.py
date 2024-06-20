@@ -14,11 +14,11 @@ import compile_all
 class TestCompileAll(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
-        config = {"FreeCAD-version": "0.22",
-                  "LibPack-version": "3.0.0",
-                  "content": [
-                      {"name": "nonexistent"}
-                  ]}
+        config = {
+            "FreeCAD-version": "0.22",
+            "LibPack-version": "3.0.0",
+            "content": [{"name": "nonexistent"}],
+        }
         self.compiler = compile_all.Compiler(config, compile_all.BuildMode.RELEASE, "bison_path")
         self.original_dir = os.getcwd()
 
@@ -29,15 +29,13 @@ class TestCompileAll(unittest.TestCase):
     @patch("os.chdir")
     @patch("compile_all.Compiler.build_nonexistent")
     def test_compile_all_calls_build_function(self, nonexistent_mock: MagicMock, _):
-        config = {"content": [
-            {"name": "nonexistent"}
-        ]}
+        config = {"content": [{"name": "nonexistent"}]}
         self.compiler.compile_all()
         nonexistent_mock.assert_called_once()
 
     @patch("subprocess.run")
     def test_get_python_version(self, run_mock: MagicMock):
-        """ Checking the Python version stores the Major and Minor components (but not the Patch) """
+        """Checking the Python version stores the Major and Minor components (but not the Patch)"""
 
         # Arrange
         mock_result = MagicMock()
