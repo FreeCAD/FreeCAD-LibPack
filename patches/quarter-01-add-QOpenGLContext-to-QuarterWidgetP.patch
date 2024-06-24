@@ -1,0 +1,5 @@
+@@@ src\Quarter\QuarterWidgetP.cpp @@@
+@@ -2303,24 +2303,51 @@
+ glue/gl.h%3E%0A%0A
++#include %3CQOpenGLContext%3E%0A%0A
+ #include %22Na

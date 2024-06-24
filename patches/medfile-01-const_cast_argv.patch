@@ -1,0 +1,25 @@
+@@@ tools/medimport/medimportcxx.cxx @@@
+@@ -836,26 +836,8 @@
+  %7B%0A%0A
+-  char * fileOut;%0A
+   in
+@@ -1000,57 +1000,174 @@
+ %7D%0A  
+-if (argc == 2 ) fileOut=%22%22; else 
++char fileOut%5B4096%5D;%0A  if (argc == 2 ) %7B%0A    strncpy(fileOut, %22%22, 1);%0A  %7D else %7B%0A    strncpy(
+ fileOut
+-=
++, 
+ argv%5B2%5D
+-;
++, strlen(argv%5B2%5D)+1);  // Include the terminating null%0A  %7D
+ %0A%0A  
+@@ -1195,16 +1195,36 @@
+ port
++(const_cast%3Cchar *%3E 
+ (argv%5B1%5D
+ , fi
+@@ -1219,16 +1219,17 @@
+ (argv%5B1%5D
++)
+ , fileOu
