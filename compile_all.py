@@ -428,6 +428,7 @@ class Compiler:
                     "b2",
                     f"install",
                     "address-model=64",
+                    "architecture=x86",  # TODO: Don't hardcode
                     "link=static,shared",
                     str(self.mode).lower(),
                     "python-debugging=" + ("on" if self.mode == BuildMode.DEBUG else "off"),
@@ -443,14 +444,16 @@ class Compiler:
             )
         except subprocess.CalledProcessError as e:
             # Boost is too verbose in its output to be of much use un-processed. Dump it all to a file, and
-            # then print only the lines with the word "error" on them to stdout
-            print("Error: failed to build boost -- writing output to stdout.txt")
+            # then print only the lines with the word "error:" on them to stdout
+            print(
+                "Error: failed to build boost -- writing output to "
+                + os.path.join(os.path.curdir, "stdout.txt")
+            )
             with open("stdout.txt", "w", encoding="utf-8") as f:
                 f.write(e.stdout.decode("utf-8"))
             lines = e.stdout.decode("utf-8").split("\n")
             for line in lines:
-                if "error" in line.lower():
-                    # Lots of these lines are just files with the word 'error' in them, maybe there is a better filter?
+                if "error:" in line.lower():
                     print(line)
             exit(e.returncode)
         self._configure_boost_version()

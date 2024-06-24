@@ -27,6 +27,7 @@ def delete_extraneous_files(base_path: str) -> None:
             os.unlink(os.path.join(base_path, file))
         except OSError as e:
             print(e)
+            print("  (continuing anyway...)")
 
 
 def remove_local_path_from_cmake_files(base_path: str) -> None:
@@ -46,7 +47,24 @@ def remove_local_path_from_cmake_file(base_path: str, file_to_clean: str) -> Non
     depth_string = create_depth_string(base_path, file_to_clean)
     with open(file_to_clean, "r", encoding="UTF-8") as f:
         contents = f.read()
-    contents.replace(base_path, "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string)
+
+    if base_path.endswith(os.path.sep):
+        base_path = base_path[: -len(os.path.sep)]
+
+    # First, just replace the exact string we were given
+    contents = contents.replace(
+        base_path, "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string[:-1]
+    )  # Skip the final /
+
+    # Most occurrences should NOT have been the exact string if we are on Windows, since cMake paths should always
+    # use forward slashes, so make sure to do that replacement as well
+    if os.pathsep != "/":
+        cmake_base_path = base_path.replace(
+            os.path.sep, "/"
+        )  # cMake paths should always use forward slash
+        contents = contents.replace(
+            cmake_base_path, "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string[:-1]
+        )  # Skip /
     with open(file_to_clean, "w", encoding="utf-8") as f:
         f.write(contents)
 
@@ -55,8 +73,13 @@ def create_depth_string(base_path: str, file_to_clean: str) -> str:
     """Given a base path and a file, determine how many "../" must be appended to the file's containing directory
     to result in a path that resolves to base_path. Returns a string containing just some number of occurrences of
     "../" e.g. "../../../" to move up three levels from file_to_clean's containing folder."""
+
+    file_to_clean = os.path.normpath(file_to_clean)
     if not file_to_clean.startswith(base_path):
         raise RuntimeError(f"{file_to_clean} does not appear to be in {base_path}")
+
+    if base_path.endswith(os.path.sep):
+        base_path = base_path[: -len(os.path.sep)]
 
     containing_directory = os.path.dirname(file_to_clean)
     directories_to_file = len(containing_directory.split(os.path.sep))

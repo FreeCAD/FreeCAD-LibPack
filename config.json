@@ -77,7 +77,8 @@
         {
             "name":"boost",
             "git-repo":"https://github.com/boostorg/boost",
-            "git-ref":"boost-1.85.0"
+            "git-ref":"boost-1.85.0",
+            "patches": ["patches/boost-01-msvc_14_4_support.patch"]
         },
         {
             "name":"coin",
