@@ -265,7 +265,10 @@ if __name__ == "__main__":
     compiler.init_script = devel_init_script
     compiler.compile_all()
 
-    path_cleaner.delete_extraneous_files(compile_all.libpack_dir(config_dict, mode))
-    path_cleaner.remove_local_path_from_cmake_files(compile_all.libpack_dir(config_dict, mode))
+    # Final cleanup: delete extraneous files and remove local path references from the cMake files
+    base_path = compile_all.libpack_dir(config_dict, mode)
+    path_cleaner.delete_extraneous_files(base_path)
+    path_cleaner.remove_local_path_from_cmake_files(base_path)
+    path_cleaner.correct_opencascade_freetype_ref(base_path)
 
     write_manifest(config_dict, mode)

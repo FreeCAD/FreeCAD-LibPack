@@ -26,8 +26,8 @@ def delete_extraneous_files(base_path: str) -> None:
         try:
             os.unlink(os.path.join(base_path, file))
         except OSError as e:
-            print(e)
-            print("  (continuing anyway...)")
+            # If the file isn't there, that's as good as deleting it, right?
+            pass
 
 
 def remove_local_path_from_cmake_files(base_path: str) -> None:
@@ -86,3 +86,19 @@ def create_depth_string(base_path: str, file_to_clean: str) -> str:
     directories_in_base = len(base_path.split(os.path.sep))
     num_steps_up = directories_to_file - directories_in_base
     return "../" * num_steps_up  # For use in cMake, so always a forward slash here
+
+
+def correct_opencascade_freetype_ref(base_path: str):
+    """OpenCASCADE hardcodes the path to the freetype it was compiled against. The above code doesn't correct it to
+    the necessary path because of the way this variable is used within cMake. So just remove the path altogether and
+    rely on the rest of our configuration to find the correct one."""
+    files_to_fix = ["OpenCASCADEDrawTargets.cmake", "OpenCASCADEVisualizationTargets.cmake"]
+    for fix in files_to_fix:
+        path = os.path.join(base_path, "cmake", fix)
+        with open(path, "r", encoding="utf-8") as f:
+            contents = f.read()
+        contents = contents.replace(
+            "${CMAKE_CURRENT_SOURCE_DIR}/../lib/freetype.lib", "freetype.lib"
+        )
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(contents)
