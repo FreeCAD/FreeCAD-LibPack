@@ -1,21 +1,5 @@
-Requirements for LibPack for FreeCAD 0.20:
+# NOTE: These are the requirements for the LibPack-generation scripts, NOT for FreeCAD. They do not describe
+# the contents of the LibPack (for that see config.json)
 
-- at least the library version of this LibPack:
-https://github.com/FreeCAD/FreeCAD-LibPack/releases/tag/1.0
-
-- compilable using MSVC 2019
-  -> to be checked
-
-- Python 3.8x, not newer to support Windows 7
-  -> is the case
-
-- VTK 8.x, not 9.x because there are known bugs in VTK
-  -> is the case
-
-- Qt 5.15.3
-  -> ToDo
-
-- OpenCADSCADE 7.6.2 +  the blobfish patches:
-  https://gitlab.com/blobfish/occt
-  (fixes several fillet crash bugs FreeCAD was suffering from)
-  -> ToDo
+diff-match-patch
+requests
