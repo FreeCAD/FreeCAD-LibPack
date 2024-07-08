@@ -178,7 +178,8 @@ class Compiler:
             f"-D ZLIB_INCLUDE_DIR={self.install_dir}/include",
             f"-D ZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib" + to_static(),
             f"-D ZLIB_LIBRARY_DEBUG={self.install_dir}/lib/zlibd" + to_static(),
-            "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",  # Absolutely never find SoQt (it's deprecated and we don't want it!)
+            "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",
+            # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
         if self.boost_include_path:
             base.append(f"-D Boost_INCLUDE_DIR={self.boost_include_path}")
@@ -1018,3 +1019,11 @@ class Compiler:
                 return
         extra_args = ["-D BUILD_CXX_LIB=ON -D BUILD_PY_LIB=ON -D BUILD_DOC=OFF"]
         self._build_standard_cmake(extra_args)
+
+    def build_calculix(self, _: None):
+        """Cannot currently build Calculix (it's in Fortran, and we only support MSVC toolchain right now). Extract
+        the relevant files from the downloaded zipfile and copy them"""
+        path_to_ccx_bin = os.path.join(os.getcwd(), "CL35-win64", "bin", "ccx", "218")
+        if not os.path.exists(path_to_ccx_bin):
+            raise RuntimeError("Could not locate Calculix")
+        shutil.copytree(path_to_ccx_bin, os.path.join(self.install_dir, "bin"), dirs_exist_ok=True)

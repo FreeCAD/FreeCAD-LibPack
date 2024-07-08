@@ -5,11 +5,11 @@
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
-            "git-ref":"v3.12.3"
+            "git-ref":"v3.12.4"
         },
         {
             "name":"pip",
-            "note":"Use the ensure_pip Python module to install pip after compiling Python"
+            "note":"Uses the ensure_pip Python module to install pip after compiling Python"
         },
         {
             "name":"setuptools",
@@ -62,7 +62,7 @@
         },
         {
             "name":"qt",
-            "install-directory":"C:\\Qt\\6.7.1\\msvc2019_64"
+            "install-directory":"C:\\Qt\\6.7.2\\msvc2019_64"
         },
         {
             "name":"bzip2",
@@ -113,7 +113,7 @@
         {
             "name":"pyside",
             "git-repo": "http://code.qt.io/pyside/pyside-setup",
-            "git-ref": "v6.7.1"
+            "git-ref": "v6.7.2"
         },
         {
             "name":"vtk",
@@ -207,6 +207,11 @@
             "name": "opencamlib",
             "git-repo": "https://github.com/aewallin/opencamlib",
             "git-ref": "2023.01.11"
+        },
+        {
+            "name":"calculix",
+            "url":"https://drive.usercontent.google.com/download?id=1Z8Mnx9-tyPdPlRi9kdPkFqZhTVA1uemY&export=download&authuser=0&confirm=t&uuid=1808e0cb-38d9-43ea-beea-619109a11527&at=APZUnTWlTXR23jpMPcF6-LBcbOaN:1720405069050",
+            "note":"Difficult to compile with an MSVC toolchain because it is written in Fortran. Direct download link here is from http://calculixforwin.blogspot.com/2015/05/calculix-launcher.html"
         }
     ]
 }

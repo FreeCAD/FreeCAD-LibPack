@@ -31,6 +31,7 @@ import os
 import shutil
 import stat
 import subprocess
+import tarfile
 from urllib.parse import urlparse
 import path_cleaner
 
@@ -155,7 +156,8 @@ def clone(name: str, url: str, ref: str = None):
 
 
 def download(name: str, url: str):
-    """Directly downloads some sort of compressed format file and decompresses it using a system-installed 7-zip"""
+    """Directly downloads some sort of compressed format file and decompresses it (either using an internal
+    python method, or using a system-installed 7-zip)"""
     print(f"Downloading {name} from {url}")
     os.mkdir(name)
     request_result = requests.get(url)
@@ -169,12 +171,31 @@ def download(name: str, url: str):
 def decompress(name: str, filename: str):
     original_dir = os.getcwd()
     os.chdir(name)
-    try:
-        subprocess.run([path_to_7zip, "x", filename], capture_output=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print("ERROR: failed to unzip {filename} at from {name} using {path_to_7zip}")
-        print(e.output)
-        exit(e.returncode)
+    if filename.endswith("7z") or filename.endswith("7zip"):
+        try:
+            subprocess.run([path_to_7zip, "x", filename], capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print("ERROR: failed to unzip {filename} at from {name} using {path_to_7zip}")
+            print(e.output)
+            exit(e.returncode)
+    elif (
+        filename.endswith(".tar.gz")
+        or filename.endswith(".tar.bz2")
+        or filename.endswith(".tar.xz")
+    ):
+        try:
+            with tarfile.open(filename) as f:
+                f.extractall(filter="data")
+        except tarfile.TarError as e:
+            print(e)
+            exit(1)
+    else:  # Try to use 7-zip to see if it's something understandable to that program
+        try:
+            subprocess.run([path_to_7zip, "x", filename], capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print("ERROR: failed to unzip {filename} at from {name} using {path_to_7zip}")
+            print(e.output)
+            exit(e.returncode)
     os.chdir(original_dir)
 
 
