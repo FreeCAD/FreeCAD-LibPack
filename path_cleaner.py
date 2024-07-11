@@ -102,3 +102,34 @@ def correct_opencascade_freetype_ref(base_path: str):
         )
         with open(path, "w", encoding="utf-8") as f:
             f.write(contents)
+
+
+def delete_qtwebengine(base_path: str):
+    """QtWebEngine is huge and pervasive -- it's also not used by FreeCAD (anymore). Delete anything that seems to be
+    related to it from the LibPack."""
+
+    for root, dirs, files in os.walk(base_path):
+        for file in files:
+            if "webengine" in file.lower() or "webchannel" in file.lower():
+                try:
+                    os.unlink(os.path.join(base_path, file))
+                except OSError as e:
+                    pass
+        for dir in dirs:
+            if "webengine" in dir.lower() or "webchannel" in dir.lower():
+                try:
+                    shutil.rmtree(os.path.join(base_path, dir))
+                except OSError as e:
+                    pass
+
+
+def delete_llvm_executables(base_path: str):
+    """During the build of the libpack, a number of llvm executable files are created: these are not needed to compile
+    or run FreeCAD, so remove them."""
+    files_in_bin = os.listdir(os.path.join(base_path, "bin"))
+    for file in files_in_bin:
+        if file.startswith(llvm) and file.endswith(".exe"):
+            try:
+                os.unlink(os.path.join(base_path, "bin", file))
+            except OSError as e:
+                pass
