@@ -3,6 +3,7 @@
 # should probably be consolidated.
 
 import os
+import shutil
 
 paths_to_delete = [
     "custom_vc14_64.bat",
@@ -12,12 +13,14 @@ paths_to_delete = [
     "env.bat",
     "draw.bat",
     "RELEASE.txt",
+    "samples",
 ]
 
 
 def delete_extraneous_files(base_path: str) -> None:
     """Delete each of the files listed above from the path specified in base_path. Failure to delete a file does not
     constitute a fatal error."""
+    print("Removing extraneous files")
     if not os.path.exists(base_path):
         raise RuntimeError(f"{base_path} does not exist")
     if not os.path.isdir(base_path):
@@ -35,6 +38,7 @@ def remove_local_path_from_cmake_files(base_path: str) -> None:
     a) OpenCASCADE codes in the local path to FreeType, which then fails when the LibPack is distributed, and b) for
     good measure cMake files shouldn't refer to non-existent paths on a foreign system. So this method looks for
     cmake config files and cleans the ones it finds."""
+    print("Removing local paths from cMake files")
     for root, dirs, files in os.walk(base_path):
         for file in files:
             if file.lower().endswith(".cmake"):
@@ -108,27 +112,77 @@ def delete_qtwebengine(base_path: str):
     """QtWebEngine is huge and pervasive -- it's also not used by FreeCAD (anymore). Delete anything that seems to be
     related to it from the LibPack."""
 
+    print("Removing QtWebEngine (and related code)")
     for root, dirs, files in os.walk(base_path):
+        for dir in dirs:
+            if (
+                "webengine" in dir.lower()
+                or "webchannel" in dir.lower()
+                or "websockets" in dir.lower()
+            ):
+                try:
+                    full_path = os.path.join(root, dir)
+                    shutil.rmtree(full_path)
+                except OSError as e:
+                    print(f"Failed to delete file {full_path}: {e}")
         for file in files:
             if "webengine" in file.lower() or "webchannel" in file.lower():
                 try:
-                    os.unlink(os.path.join(base_path, file))
+                    full_path = os.path.join(root, file)
+                    os.unlink(full_path)
                 except OSError as e:
-                    pass
+                    print(f"Failed to delete path {full_path}: {e}")
+
+
+def delete_qtquick(base_path: str):
+    """QtQuick is unused in FreeCAD at this time."""
+
+    def is_qtquick(name: str) -> bool:
+        lc = name.lower()
+        if "qtquick" in lc or "qml" in lc:
+            return True
+        if lc.startswith("q") and "quick" in lc:
+            return True
+        return False
+
+    print("Removing QtQuick/QML")
+    for root, dirs, files in os.walk(base_path):
         for dir in dirs:
-            if "webengine" in dir.lower() or "webchannel" in dir.lower():
+            if is_qtquick(dir):
                 try:
-                    shutil.rmtree(os.path.join(base_path, dir))
+                    full_path = os.path.join(root, dir)
+                    shutil.rmtree(full_path)
                 except OSError as e:
-                    pass
+                    print(f"Failed to delete file {full_path}: {e}")
+        for file in files:
+            if is_qtquick(file):
+                try:
+                    full_path = os.path.join(root, file)
+                    os.unlink(full_path)
+                except OSError as e:
+                    print(f"Failed to delete path {full_path}: {e}")
 
 
 def delete_llvm_executables(base_path: str):
     """During the build of the libpack, a number of llvm executable files are created: these are not needed to compile
     or run FreeCAD, so remove them."""
+    print("Removing llvm executables")
     files_in_bin = os.listdir(os.path.join(base_path, "bin"))
     for file in files_in_bin:
-        if file.startswith(llvm) and file.endswith(".exe"):
+        if file.startswith("llvm") and file.endswith(".exe"):
+            try:
+                os.unlink(os.path.join(base_path, "bin", file))
+            except OSError as e:
+                pass
+
+
+def delete_clang_executables(base_path: str):
+    """During the build of the libpack, a number of clang executable files are created: these are not needed to compile
+    or run FreeCAD, so remove them."""
+    print("Removing clang executables")
+    files_in_bin = os.listdir(os.path.join(base_path, "bin"))
+    for file in files_in_bin:
+        if file.startswith("clang") and file.endswith(".exe"):
             try:
                 os.unlink(os.path.join(base_path, "bin", file))
             except OSError as e:

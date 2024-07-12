@@ -292,6 +292,8 @@ if __name__ == "__main__":
     path_cleaner.remove_local_path_from_cmake_files(base_path)
     path_cleaner.correct_opencascade_freetype_ref(base_path)
     path_cleaner.delete_qtwebengine(base_path)
+    path_cleaner.delete_qtquick(base_path)
     path_cleaner.delete_llvm_executables(base_path)
+    path_cleaner.delete_clang_executables(base_path)
 
     write_manifest(config_dict, mode)
