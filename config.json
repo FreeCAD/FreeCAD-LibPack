@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"1.0.0",
-    "LibPack-version":"3.0.0",
+    "LibPack-version":"3.0.0RC3",
     "content": [
         {
             "name":"python",
