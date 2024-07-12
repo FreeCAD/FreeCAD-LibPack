@@ -15,8 +15,7 @@ To build the LibPack locally, you will need the following:
  * Python >= 3.8 (**not** used inside the LibPack itself, just used to run the creation script)
  * The "requests" Python package (e.g. 'pip install requests')
  * The "diff-match-patch" Python package (e.g. 'pip install diff-match-patch')
- * Qt - the base installation plus Qt Image Formats, Qt Webengine, Qt Webview, and Qt PDF
-    * NOTE: The two Web requirements will be dropped from the LibPack before it is released
+ * Qt - the base installation plus Qt Image Formats and Qt PDF
  * GNU Bison (for Windows see https://github.com/lexxmark/winflexbison/)
 
 With those pieces in place, the next step is to configure the contents of the LibPack by editing `config.json`. This file
@@ -35,8 +34,6 @@ installation, only the config.json file needs to be edited to include the new de
 
 To change the way a package is compiled, you edit its entry in `compile_all.py`. See the contents of that file for various
 examples.
-
-**NOTE**: In this prerelease LibPack 3.0 builder, you will need to apply the contents of https://github.com/FreeCAD/FreeCAD/pull/10337 to your FreeCAD build.
 
 ## Running the build script ##
 
