@@ -206,9 +206,6 @@ class Compiler:
                 print(f"Building {item['name']}")
                 build_function = getattr(self, build_function_name)
                 build_function(item)
-            elif "pip-install" in item:
-                print(f"Installing {item['name']} with pip")
-                self._build_with_pip(item)
             else:
                 print(
                     f"No '{build_function_name}' found in compile_all.py -- "
@@ -225,7 +222,7 @@ class Compiler:
             return os.path.join(self.install_dir, "bin", "python") + to_exe()
         return os.path.join(self.install_dir, "bin", "python_d") + to_exe()
 
-    def build_python(self, _=None):
+    def build_python(self, args=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "bin", "DLLs")):
                 print("  Not rebuilding Python, it is already in the LibPack")
@@ -343,6 +340,9 @@ class Compiler:
             os.rename(pyconfig, target)
         else:
             raise NotImplemented("Non-Windows compilation of Python is not implemented yet")
+        self._build_pip()
+        if "requirements" in args:
+            self._install_python_requirements(args["requirements"])
 
     def get_python_version(self, exe: str = None) -> str:
         if exe is None:
@@ -361,16 +361,40 @@ class Compiler:
             print(e.stderr.decode("utf-8"))
             exit(1)
 
-    def build_pip(self, _=None):
+    def _build_pip(self, _=None):
+        print("  Installing the latest pip")
         path_to_python = self.python_exe()
         try:
             subprocess.run(
                 [path_to_python, "-m", "ensurepip", "--upgrade"], capture_output=True, check=True
             )
+            subprocess.run(
+                [path_to_python, "-m", "pip", "install", "--upgrade", "pip"],
+                capture_output=True,
+                check=True,
+            )
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to run LibPack's Python executable")
             print(e.stdout.decode("utf-8"))
             print(e.stderr.decode("utf-8"))
+            exit(1)
+
+    def _install_python_requirements(self, requirements):
+        print("  Installing the following requirements (and their dependencies) using pip:")
+        for req in requirements:
+            print("    " + req)
+        path_to_python = self.python_exe()
+        call_args = [path_to_python, "-m", "pip", "install", "--ignore-installed"]
+        call_args.extend(requirements)
+        try:
+            subprocess.run(
+                call_args,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: Failed to pip install requirements")
+            print(e.output.decode("utf-8"))
             exit(1)
 
     def build_qt(self, options: dict):
@@ -516,23 +540,20 @@ class Compiler:
 
     def _pip_install(self, requirement: str) -> None:
         path_to_python = self.python_exe()
-        if self.skip_existing:
+        try:
+            # Get rid of any version that's already there.
             package_name = requirement.split("==")[0]
-            try:
-                result = subprocess.run(
-                    [path_to_python, "-m", "pip", "show", package_name],
-                    check=True,
-                    capture_output=True,
-                )
-                if "WARNING:" not in result.stdout.decode("utf-8"):
-                    print(f"  Not reinstalling {package_name}, it is already in the LibPack")
-                    return
-            except subprocess.CalledProcessError:
-                pass
-
+            subprocess.run(
+                [path_to_python, "-m", "pip", "uninstall", "--yes", package_name],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"{package_name} was not uninstalled... continuing")
+            pass
         try:
             subprocess.run(
-                [path_to_python, "-m", "pip", "install", requirement],
+                [path_to_python, "-m", "pip", "install", "--ignore-installed", requirement],
                 check=True,
                 capture_output=True,
             )
