@@ -52,7 +52,7 @@
         {
             "name":"libpng",
             "git-repo":"https://github.com/glennrp/libpng",
-            "git-ref":"v1.6.40"
+            "git-ref":"v1.6.43"
         },
         {
             "name":"boost",
@@ -74,12 +74,12 @@
         {
             "name":"pcre2",
             "git-repo":"https://github.com/PCRE2Project/pcre2",
-            "git-ref":"pcre2-10.42"
+            "git-ref":"pcre2-10.44"
         },
         {
             "name":"swig",
             "git-repo":"https://github.com/swig/swig.git",
-            "git-tag":"v4.1.1"
+            "git-tag":"v4.2.1"
         },
         {
             "name":"pivy",
@@ -104,7 +104,7 @@
         {
             "name":"harfbuzz",
             "git-repo":"https://github.com/harfbuzz/harfbuzz",
-            "git-ref":"8.5.0"
+            "git-ref":"9.0.0"
         },
         {
             "name":"freetype",
@@ -114,17 +114,17 @@
         {
             "name":"tcl",
             "git-repo":"https://github.com/tcltk/tcl",
-            "git-ref":"core-8-6-13"
+            "git-ref":"core-8-6-14"
         },
         {
             "name":"tk",
             "git-repo":"https://github.com/tcltk/tk",
-            "git-ref":"core-8-6-13"
+            "git-ref":"core-8-6-14"
         },
         {
             "name": "rapidjson",
             "git-repo":"https://github.com/Tencent/rapidjson",
-            "git-ref":"v1.1.0"
+            "git-ref":"master"
         },
         {
             "name":"eigen3",
