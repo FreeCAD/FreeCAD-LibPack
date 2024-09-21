@@ -1,6 +1,6 @@
 This repository is to provide libraries needed to compile FreeCAD under Windows.
 
-The current LibPack, v3.0, is tested to work with [Microsoft Visual C++](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B) (a.k.a. MSVC or VC) v14.4 (released mid-2024). It should be possible to use other compilers like MinGW, however this is not tested. This LibPack only supports FreeCAD compilation in Release or RelWithDebInfo mode. It may be possible to compile the LibPack in Debug mode, but changes will certainly be required (and patches are welcome!). In particular, the pip installation of Numpy will have to be adjusted to compile a debug version of Numpy, which will otherwise fail to load from a debug compilation of Python.
+The current LibPack, v3.0, is tested to work with [Microsoft Visual C++](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B) (a.k.a. MSVC or VC) v19.40 (Visual Studio version 17.10), and is known to not work with earlier versions (e.g. Visual Studio 2019 will not work with LibPack v3, and must use LibPack v2.11) It should be possible to use other compilers like MinGW, however this is not tested. This LibPack only supports FreeCAD compilation in Release or RelWithDebInfo mode. It may be possible to compile the LibPack in Debug mode, but changes will certainly be required (and patches are welcome!). In particular, the pip installation of Numpy will have to be adjusted to compile a debug version of Numpy, which will otherwise fail to load from a debug compilation of Python.
 
 For information how to use the LibPack to compile, see this Wiki page: https://wiki.freecadweb.org/Compile_on_Windows
 
@@ -8,7 +8,7 @@ For information how to use the LibPack to compile, see this Wiki page: https://w
 
 To build the LibPack locally, you will need the following:
  * Network access
- * A working compiler toolchain for your system, accessible by cMake
+ * Visual Studio 17.10.x, accessible by cMake (note that PySide cannot currently be compiled with Visual Studio 17.11, so self-builds of the LibPack **must** use 17.10.x. Earlier and later versions are not supported.)
  * CMake
  * git
  * 7z (see https://www.7-zip.org)
