@@ -1066,10 +1066,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "fmt")):
                 print("  Not rebuilding libfmt, it is already in the LibPack")
                 return
-            extra_args = [
-                "-D FMT_TEST=OFF",
-                "-D FMT_DOC=OFF"
-            ]
+            extra_args = ["-D FMT_TEST=OFF", "-D FMT_DOC=OFF"]
         self._build_standard_cmake(extra_args)
 
     def build_eigen3(self, _: None):
