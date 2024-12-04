@@ -1,0 +1,5 @@
+@@@ interfaces/CMakeLists.txt @@@
+@@ -1224,16 +1224,70 @@
+ igobj%22)%0A
++    target_link_libraries(coin PUBLIC Python::Python)%0A
+ elseif(W

@@ -1,0 +1,9 @@
+@@@ icu4c/source/allinone/allinone.sln @@@
+@@ -6375,152 +6375,8 @@
+ ect%0A
+-Project(%22%7B8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942%7D%22) = %22makedata%22, %22..%5Cdata%5Cmakedata.vcxproj%22, %22%7BD9DF7F2F-93B7-4810-B5CD-96F4F33C079B%7D%22%0AEndProject%0A
+ Proj
+@@ -12094,160 +12094,8 @@
+ ect%0A
+-Project(%22%7B8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942%7D%22) = %22makedata_uwp%22, %22..%5Cdata%5Cmakedata_uwp.vcxproj%22, %22%7BB1D53358-37BD-48BC-B27C-68BAF1E78508%7D%22%0AEndProject%0A
+ Proj

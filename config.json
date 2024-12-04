@@ -1,38 +1,40 @@
 {
-    "FreeCAD-version":"1.0.0",
-    "LibPack-version":"3.0.0",
+    "FreeCAD-version":"1.1.0",
+    "LibPack-version":"3.1.0",
     "content": [
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
-            "git-ref":"v3.12.4",
+            "git-ref":"v3.12.7",
+            "note1": "As of 19 November 2024, IfcOpenShell did not support Python 3.13",
+            "note2": "pynastran 1.4.1 depends on numpy<2",
             "requirements": [
                 "area==1.1.1",
-                "cmake==3.29.3",
-                "cog==0.6.1",
-                "configparser==7.0.0",
-                "debugpy==1.8.2",
+                "cmake==3.31.0.1",
+                "cog==0.13.2",
+                "configparser==7.1.0",
+                "debugpy==1.8.8",
                 "defusedxml==0.7.1",
-                "ifcopenshell==0.7.0.240627",
-                "ladybug-core==0.43.0",
-                "matplotlib==3.9.1",
+                "ifcopenshell==0.8.0",
+                "ladybug-core==0.43.18",
+                "matplotlib==3.9.2",
                 "numpy==1.26.4",
                 "opencv-python==4.10.0.84",
-                "packaging==24.1",
-                "pillow==10.3.0",
+                "packaging==24.2",
+                "pillow==11.0.0",
                 "ply==3.11",
                 "pycollada==0.8",
                 "pyNastran==1.4.1",
                 "pyshp==2.3.1",
                 "pysolar==0.11",
-                "PyYAML==6.0.1",
+                "PyYAML==6.0.2",
                 "requests==2.32.3",
                 "rpdb2==2.0.0.1.2",
-                "scipy==1.13.1",
+                "scipy==1.14.1",
                 "sets==0.3.2",
-                "setuptools==70.0.0",
+                "setuptools==75.5.0",
                 "vermin==1.6.0",
-                "wheel==0.43.0"
+                "wheel==0.45.0"
             ]
         },
         {
@@ -42,7 +44,7 @@
         },
         {
             "name":"qt",
-            "install-directory":"C:\\Qt\\6.7.2\\msvc2019_64"
+            "install-directory":"C:\\Qt\\6.8.1\\msvc2022_64"
         },
         {
             "name":"bzip2",
@@ -55,10 +57,14 @@
             "git-ref":"v1.6.40"
         },
         {
-            "name":"boost",
-            "git-repo":"https://github.com/boostorg/boost",
-            "git-ref":"boost-1.85.0",
-            "patches": ["patches/boost-01-msvc_14_4_support.patch"]
+            "name":"pybind11",
+            "git-repo":"https://github.com/pybind/pybind11",
+            "git-ref":"v2.13.6"
+        },
+        {
+            "name": "boost",
+            "git-repo": "https://github.com/boostorg/boost",
+            "git-ref": "boost-1.86.0"
         },
         {
             "name":"coin",
@@ -74,52 +80,53 @@
         {
             "name":"pcre2",
             "git-repo":"https://github.com/PCRE2Project/pcre2",
-            "git-ref":"pcre2-10.42"
+            "git-ref":"pcre2-10.44"
         },
         {
             "name":"swig",
             "git-repo":"https://github.com/swig/swig.git",
-            "git-tag":"v4.1.1"
+            "git-tag":"v4.3.0"
         },
         {
             "name":"pivy",
             "git-repo":"https://github.com/coin3d/pivy",
-            "git-ref":"master"
+            "git-ref":"0.6.9",
+            "patches": ["patches/pivy-01-add-python-libraries.patch"]
         },
         {
             "name":"libclang",
-            "url":"https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_140-based-windows-vs2019_64.7z"
+            "url":"https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_19.1.0-based-windows-vs2019_64.7z"
         },
         {
             "name":"pyside",
             "git-repo": "http://code.qt.io/pyside/pyside-setup",
-            "git-ref": "v6.7.2"
+            "git-ref": "6.8.1"
         },
         {
             "name":"vtk",
             "git-repo":"https://gitlab.kitware.com/vtk/vtk.git",
-            "git-ref":"v9.3.0",
-            "patches": ["patches/vtk-01-add-missing-typename.patch", "patches/vtk-02-add_cast_to_specific_type.patch"]
+            "git-ref":"v9.3.1",
+            "patches": ["patches/vtk-02-add_cast_to_specific_type.patch"]
         },
         {
             "name":"harfbuzz",
             "git-repo":"https://github.com/harfbuzz/harfbuzz",
-            "git-ref":"8.5.0"
+            "git-ref":"10.1.0"
         },
         {
             "name":"freetype",
             "git-repo":"https://gitlab.freedesktop.org/freetype/freetype/",
-            "git-ref":"VER-2-13-1"
+            "git-ref":"VER-2-13-3"
         },
         {
             "name":"tcl",
             "git-repo":"https://github.com/tcltk/tcl",
-            "git-ref":"core-8-6-13"
+            "git-ref":"core-8-6-15"
         },
         {
             "name":"tk",
             "git-repo":"https://github.com/tcltk/tk",
-            "git-ref":"core-8-6-13"
+            "git-ref":"core-8-6-15"
         },
         {
             "name": "rapidjson",
@@ -133,23 +140,26 @@
         },
         {
             "name":"opencascade",
-            "git-repo":"https://gitlab.com/blobfish/occt",
-            "git-ref":"V7_8_0_BF"
+            "git-repo":"https://github.com/FreeCAD/OCCT",
+            "git-ref":"patched",
+            "patches": ["patches/opencascade-01-StdPrs_BRepFont.patch"]
         },
         {
             "name":"netgen",
             "git-repo":"https://github.com/NGSolve/netgen",
-            "git-ref":"v6.2.2403"
+            "git-ref":"v6.2.2404",
+            "patches": ["patches/netgen-01-python-file-include-order.patch"]
         },
         {
             "name":"hdf5",
             "git-repo":"https://github.com/HDFGroup/hdf5",
-            "git-ref":"hdf5-1_10_8"
+            "git-ref":"hdf5-1_12_3",
+            "note":"Salome medfile 5.0.0 requires HDF5 1.12.x, no later version may be used"
         },
         {
             "name":"medfile",
             "git-repo":"https://github.com/chennes/med",
-            "git-ref":"v4.1.1",
+            "git-ref":"v5.0.0",
             "patches": ["patches/medfile-01-const_cast_argv.patch"]
         },
         {
@@ -166,17 +176,19 @@
             "name":"icu",
             "git-repo":"https://github.com/unicode-org/icu",
             "git-ref":"release-74-2",
-            "note":"Cannot yet use the 75.x series, compilation of Xerces 3.2.5 fails against them"
+            "note":"Cannot yet use the 75.x series, compilation of Xerces 3.2.5 fails against them",
+            "patches": ["patches/icu-01-remove_makedata_target.patch"]
         },
         {
             "name":"xercesc",
             "git-repo":"https://github.com/apache/xerces-c",
-            "git-ref":"v3.2.5"
+            "git-ref":"v3.2.5",
+            "note": "Compilation of v3.3.0 is failing under MSVC 143 as of this writing"
         },
         {
             "name":"libfmt",
             "git-repo":"https://github.com/fmtlib/fmt",
-            "git-ref":"10.2.1"
+            "git-ref":"11.0.2"
         },
         {
             "name": "yamlcpp",
