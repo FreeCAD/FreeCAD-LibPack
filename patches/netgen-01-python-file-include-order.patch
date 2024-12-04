@@ -1,0 +1,8 @@
+@@@ libsrc/meshing/python_mesh.cpp @@@
+@@ -1,20 +1,37 @@
++#ifdef NG_PYTHON%0A
+ #include %22pybind11/p
+@@ -43,25 +43,8 @@
+ s.h%22
+-%0A#ifdef NG_PYTHON
+ %0A%0A#i
