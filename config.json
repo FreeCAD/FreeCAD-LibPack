@@ -40,7 +40,7 @@
         {
             "name":"zlib",
             "git-repo":"https://github.com/madler/zlib",
-            "git-ref":"v1.3"
+            "git-ref":"v1.3.1"
         },
         {
             "name":"qt",
