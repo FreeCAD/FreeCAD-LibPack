@@ -54,7 +54,7 @@
         {
             "name":"libpng",
             "git-repo":"https://github.com/glennrp/libpng",
-            "git-ref":"v1.6.40"
+            "git-ref":"v1.6.47"
         },
         {
             "name":"pybind11",
@@ -80,7 +80,7 @@
         {
             "name":"pcre2",
             "git-repo":"https://github.com/PCRE2Project/pcre2",
-            "git-ref":"pcre2-10.44"
+            "git-ref":"pcre2-10.45"
         },
         {
             "name":"swig",
@@ -111,7 +111,7 @@
         {
             "name":"harfbuzz",
             "git-repo":"https://github.com/harfbuzz/harfbuzz",
-            "git-ref":"10.1.0"
+            "git-ref":"10.4.0"
         },
         {
             "name":"freetype",
