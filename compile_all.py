@@ -711,7 +711,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "share", "licenses", "VTK")):
                 print("  Not rebuilding VTK, it is already in the LibPack")
                 return
-        extra_args = []
+        extra_args = ["-D VTK_WRAP_PYTHON=YES", "-D VTK_MODULE_ENABLE_VTK_WrappingPythonCore=YES"]
         if sys.platform.startswith("win32"):
             extra_args.append(
                 "-D VTK_MODULE_ENABLE_VTK_IOIOSS=NO",  # Workaround for bug in Visual Studio MSVC 143

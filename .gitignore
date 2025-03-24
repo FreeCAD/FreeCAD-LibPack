@@ -1,6 +1,6 @@
 __pycache__
 .vscode/
-working
+working*
 LibPack-*
 .venv
 venv
