@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"1.1.0",
-    "LibPack-version":"3.1.0",
+    "LibPack-version":"3.1.1",
     "content": [
         {
             "name":"python",
@@ -105,8 +105,7 @@
         {
             "name":"vtk",
             "git-repo":"https://gitlab.kitware.com/vtk/vtk.git",
-            "git-ref":"v9.3.1",
-            "patches": ["patches/vtk-02-add_cast_to_specific_type.patch"]
+            "git-ref":"v9.4.1"
         },
         {
             "name":"harfbuzz",
