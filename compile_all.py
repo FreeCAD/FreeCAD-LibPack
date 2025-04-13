@@ -144,17 +144,18 @@ class Compiler:
         base = [
             "-D CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE",  # Never use system packages, always use only the libpack
             "-D CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY=TRUE",  # Same as above?
+            "-D CMAKE_CXX_STANDARD=20",
             f"-D BISON_EXECUTABLE={self.bison_path}",
             f"-D BOOST_ROOT={self.install_dir}",
-            f"-D BUILD_DOC=No",
-            f"-D BUILD_DOCS=No",
-            f"-D BUILD_EXAMPLES=No",
-            f"-D BUILD_SHARED=Yes",
-            f"-D BUILD_SHARED_LIB=Yes",
-            f"-D BUILD_SHARED_LIBS=Yes",
-            f"-D BUILD_TEST=No",
-            f"-D BUILD_TESTS=No",
-            f"-D BUILD_TESTING=No",
+            "-D BUILD_DOC=No",
+            "-D BUILD_DOCS=No",
+            "-D BUILD_EXAMPLES=No",
+            "-D BUILD_SHARED=Yes",
+            "-D BUILD_SHARED_LIB=Yes",
+            "-D BUILD_SHARED_LIBS=Yes",
+            "-D BUILD_TEST=No",
+            "-D BUILD_TESTS=No",
+            "-D BUILD_TESTING=No",
             f"-D BZIP2_DIR={self.install_dir}/lib/cmake/",
             f"-D Boost_INCLUDE_DIRS={self.install_dir}/include",
             f"-D CMAKE_BUILD_TYPE={self.mode}",
@@ -187,11 +188,11 @@ class Compiler:
             base.append(f"-D Coin_DIR={self.coin_cmake_path}")
         if sys.platform.startswith("win32"):
             inc_path = self.install_dir.replace("\\", "/")
-            cxx_flags = f"/I{inc_path}/include /EHsc /DWIN32"
+            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64"
             if self.strict_mode:
                 # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against
-                # Qt. The same is true for /Zc:__cplusplus /std:c++17
-                cxx_flags += " /Zc:__cplusplus /std:c++17 /permissive-"
+                # Qt. The same is true for /Zc:__cplusplus /std:c++20
+                cxx_flags += " /Zc:__cplusplus /std:c++20 /permissive-"
         else:
             cxx_flags = f"-I{self.install_dir}/include"
         base.append(f"-D CMAKE_CXX_FLAGS={cxx_flags}")
@@ -426,6 +427,30 @@ class Compiler:
             if self.boost_include_path is not None:
                 print("  Not rebuilding boost, it is already in the LibPack")
                 return
+
+        # NOTE: You can't build boost in-source twice, it will report an error the second time. So if you need to
+        # rebuild boost and you've already built it once, delete the entire Boost working directory, as well as the
+        # installed copy in the LibPack, then re-run this script. TODO: autodelete boost's build files
+
+        # Boost uses a custom build system and needs a config file to find our Python
+        with open(
+            os.path.join("tools", "build", "src", "user-config.jam"), "w", encoding="utf-8"
+        ) as user_config:
+            exe = self.python_exe()
+            if sys.platform.startswith("win32"):
+                exe = exe.replace("\\", "\\\\")
+            inc_dir = os.path.join(self.install_dir, "bin", "include").replace("\\", "\\\\")
+            lib_dir = os.path.join(self.install_dir, "bin", "libs").replace("\\", "\\\\")
+            python_version = self.get_python_version()
+            full_version = python_version + ("d" if self.mode == BuildMode.DEBUG else "")
+            print(f"  (boost-python is being built against Python {full_version})")
+            user_config.write(f"using python : {python_version} ")
+            user_config.write(f': "{exe}" ')
+            user_config.write(f': "{inc_dir}" ')
+            user_config.write(f': "{lib_dir}" ')
+            if self.mode == BuildMode.DEBUG:
+                user_config.write(f": <python-debugging>on ")
+            user_config.write(";\n")
         try:
             # When debugging on the command line, add --debug-configuration to get more verbose output
             install_dir = self.install_dir
@@ -449,7 +474,6 @@ class Compiler:
                     "--layout=versioned",
                     "--without-mpi",
                     "--without-graph_parallel",
-                    "--without-python",
                     "--build-type=complete",
                     "--debug-configuration",
                 ],
@@ -494,7 +518,9 @@ class Compiler:
         cmake_setup_options = [self.init_script, "&", "cmake"]
         cmake_setup_options.extend(args)
         try:
-            subprocess.run(cmake_setup_options, check=True, capture_output=True)
+            process = subprocess.run(cmake_setup_options, check=True, capture_output=True)
+            with open("build_log.txt", "a", encoding="utf-8") as f:
+                f.write(process.stdout.decode("utf-8"))
         except subprocess.CalledProcessError as e:
             print("ERROR: cMake failed!")
             print(f"Command: {' '.join(cmake_setup_options)}")
@@ -513,7 +539,7 @@ class Compiler:
         self._run_cmake(options)
 
     def _cmake_build(self, parallel: bool = True):
-        cmake_build_options = ["--build", ".", "--config", str(self.mode).lower()]
+        cmake_build_options = ["--build", ".", "--config", str(self.mode).lower(), "--verbose"]
         if parallel:
             cmake_build_options.append("--parallel")
         self._run_cmake(cmake_build_options)
@@ -1066,7 +1092,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "fmt")):
                 print("  Not rebuilding libfmt, it is already in the LibPack")
                 return
-            extra_args = ["-D FMT_TEST=OFF", "-D FMT_DOC=OFF"]
+        extra_args = ["-D FMT_TEST=OFF", "-D FMT_DOC=OFF"]
         self._build_standard_cmake(extra_args)
 
     def build_eigen3(self, _: None):
@@ -1086,10 +1112,10 @@ class Compiler:
 
     def build_opencamlib(self, _: None):
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "lib", "opencamlib", "ocl.lib")):
-                print("  Not rebuilding opencamlib, it is already in the LibPack")
-                return
-        extra_args = ["-D BUILD_CXX_LIB=ON -D BUILD_PY_LIB=ON -D BUILD_DOC=OFF"]
+            os.path.join(self.install_dir, "bin", "Lib", "site-packages", "opencamlib")
+            print("  Not rebuilding opencamlib, it is already in the LibPack")
+            return
+        extra_args = ["-D BUILD_CXX_LIB=OFF", "-D BUILD_PY_LIB=ON", "-D BUILD_DOC=OFF"]
         self._build_standard_cmake(extra_args)
 
     def build_calculix(self, _: None):
@@ -1109,3 +1135,21 @@ class Compiler:
             os.path.join(self.install_dir, "bin", "ccx218.exe"),
             os.path.join(self.install_dir, "bin", "ccx.exe"),
         )
+
+    def build_libE57Format(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "E57Format")):
+                print("  Not rebuilding libE57Format, it is already in the LibPack")
+                return
+        extra_args = ["-D E57_BUILD_TEST=OFF"]
+        self._build_standard_cmake(extra_args)
+
+    def build_googletest(self, _: None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "gtest")):
+                print("  Not rebuilding googletest, it is already in the LibPack")
+                return
+        extra_args = []
+        if sys.platform == "win32":
+            extra_args.extend(["-D GTEST_FORCE_SHARED_CRT=ON", "-D GTEST_DISABLE_PTHREADS=ON"])
+        self._build_standard_cmake(extra_args)
