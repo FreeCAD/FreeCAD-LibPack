@@ -15,7 +15,7 @@
                 "configparser==7.1.0",
                 "debugpy==1.8.8",
                 "defusedxml==0.7.1",
-                "ifcopenshell==0.8.0",
+                "ifcopenshell==0.8.1.post1",
                 "ladybug-core==0.43.18",
                 "matplotlib==3.9.2",
                 "numpy==1.26.4",
@@ -64,12 +64,14 @@
         {
             "name": "boost",
             "git-repo": "https://github.com/boostorg/boost",
-            "git-ref": "boost-1.86.0"
+            "git-ref": "boost-1.87.0"
         },
         {
             "name":"coin",
             "git-repo":"https://github.com/coin3d/coin",
-            "git-ref":"master"
+            "git-ref":"master",
+            "patches": ["patches/coin-01-update_cmake_min.patch",
+                        "patches/coin-02-update_cmake_min.patch"]
         },
         {
             "name":"quarter",
@@ -203,6 +205,17 @@
             "name":"calculix",
             "url":"https://drive.usercontent.google.com/download?id=1Z8Mnx9-tyPdPlRi9kdPkFqZhTVA1uemY&export=download&authuser=0&confirm=t&uuid=1808e0cb-38d9-43ea-beea-619109a11527&at=APZUnTWlTXR23jpMPcF6-LBcbOaN:1720405069050",
             "note":"Difficult to compile with an MSVC toolchain because it is written in Fortran. Direct download link here is from http://calculixforwin.blogspot.com/2015/05/calculix-launcher.html"
+        },
+        {
+            "name": "libE57Format",
+            "git-repo": "https://github.com/asmaloney/libE57Format",
+            "git-ref": "master",
+            "note": "Using master branch as of march 2025 because no official release includes proper CMake support yet"
+        },
+        {
+            "name": "googletest",
+            "git-repo": "https://github.com/google/googletest",
+            "git-ref": "main"
         }
     ]
 }
