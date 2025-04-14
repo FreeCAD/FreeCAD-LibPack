@@ -1,5 +1,4 @@
 #!/bin/python3
-import sys
 
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
@@ -26,8 +25,11 @@ import sys
 # At present these are not re-used to create the rest of the LibPack -- if needed, they are rebuilt from source
 
 import argparse
+from contextlib import contextmanager
+import ctypes
 import json
 import os
+import platform
 import shutil
 import stat
 import subprocess
@@ -210,6 +212,35 @@ def write_manifest(outer_config: dict, mode_used: compile_all.BuildMode):
         f.write(outer_config["LibPack-version"])
 
 
+@contextmanager
+def prevent_sleep_mode():
+    system = platform.system()
+    proc = None
+
+    try:
+        if system == "Windows":
+            # Prevent sleep & display off
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+
+        elif system == "Darwin":  # macOS
+            # Use built-in caffeinate command
+            proc = subprocess.Popen(["caffeinate"])
+
+        elif system == "Linux":
+            # Use systemd-inhibit to prevent sleep
+            proc = subprocess.Popen(
+                ["systemd-inhibit", "--why=LibPack build", "--mode=block", "sleep", "infinity"]
+            )
+
+        yield
+
+    finally:
+        if system == "Windows":
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+        elif proc:
+            proc.terminate()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Builds a collection of FreeCAD dependencies for the current system"
@@ -274,26 +305,26 @@ if __name__ == "__main__":
             base = dirname
     else:
         base = create_libpack_dir(config_dict, mode)
+    with prevent_sleep_mode():
+        fetch_remote_data(config_dict, args["no_skip_existing_clone"])
 
-    fetch_remote_data(config_dict, args["no_skip_existing_clone"])
+        compiler = compile_all.Compiler(
+            config_dict,
+            bison_path=path_to_bison,
+            skip_existing=args["no_skip_existing_build"],
+            mode=mode,
+        )
+        compiler.init_script = devel_init_script
+        compiler.compile_all()
 
-    compiler = compile_all.Compiler(
-        config_dict,
-        bison_path=path_to_bison,
-        skip_existing=args["no_skip_existing_build"],
-        mode=mode,
-    )
-    compiler.init_script = devel_init_script
-    compiler.compile_all()
+        # Final cleanup: delete extraneous files and remove local path references from the cMake files
+        base_path = compile_all.libpack_dir(config_dict, mode)
+        path_cleaner.delete_extraneous_files(base_path)
+        path_cleaner.remove_local_path_from_cmake_files(base_path)
+        path_cleaner.correct_opencascade_freetype_ref(base_path)
+        path_cleaner.delete_qtwebengine(base_path)
+        # path_cleaner.delete_qtquick(base_path)
+        path_cleaner.delete_llvm_executables(base_path)
+        path_cleaner.delete_clang_executables(base_path)
 
-    # Final cleanup: delete extraneous files and remove local path references from the cMake files
-    base_path = compile_all.libpack_dir(config_dict, mode)
-    path_cleaner.delete_extraneous_files(base_path)
-    path_cleaner.remove_local_path_from_cmake_files(base_path)
-    path_cleaner.correct_opencascade_freetype_ref(base_path)
-    path_cleaner.delete_qtwebengine(base_path)
-    # path_cleaner.delete_qtquick(base_path)
-    path_cleaner.delete_llvm_executables(base_path)
-    path_cleaner.delete_clang_executables(base_path)
-
-    write_manifest(config_dict, mode)
+        write_manifest(config_dict, mode)
