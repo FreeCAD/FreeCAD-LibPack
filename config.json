@@ -5,7 +5,7 @@
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
-            "git-ref":"v3.12.7",
+            "git-ref":"v3.12.10",
             "note1": "As of 19 November 2024, IfcOpenShell did not support Python 3.13",
             "note2": "pynastran 1.4.1 depends on numpy<2",
             "requirements": [
@@ -44,7 +44,7 @@
         },
         {
             "name":"qt",
-            "install-directory":"C:\\Qt\\6.8.1\\msvc2022_64"
+            "install-directory":"G:\\Qt\\6.8.3\\msvc2022_64"
         },
         {
             "name":"bzip2",
@@ -102,7 +102,7 @@
         {
             "name":"pyside",
             "git-repo": "http://code.qt.io/pyside/pyside-setup",
-            "git-ref": "6.8.1"
+            "git-ref": "6.8.3"
         },
         {
             "name":"vtk",
