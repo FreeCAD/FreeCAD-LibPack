@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"1.1.0",
-    "LibPack-version":"3.1.1",
+    "LibPack-version":"3.1.1.2",
     "content": [
         {
             "name":"python",
@@ -21,6 +21,7 @@
                 "numpy==1.26.4",
                 "opencv-python==4.10.0.84",
                 "packaging==24.2",
+                "pip==25.0.1",
                 "pillow==11.0.0",
                 "ply==3.11",
                 "pycollada==0.8",
@@ -69,9 +70,7 @@
         {
             "name":"coin",
             "git-repo":"https://github.com/coin3d/coin",
-            "git-ref":"master",
-            "patches": ["patches/coin-01-update_cmake_min.patch",
-                        "patches/coin-02-update_cmake_min.patch"]
+            "git-ref":"master"
         },
         {
             "name":"quarter",
@@ -107,7 +106,8 @@
         {
             "name":"vtk",
             "git-repo":"https://gitlab.kitware.com/vtk/vtk.git",
-            "git-ref":"v9.4.1"
+            "git-ref":"v9.4.2",
+            "note": "checkout is failing, have to manually clone for now"
         },
         {
             "name":"harfbuzz",
