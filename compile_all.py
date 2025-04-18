@@ -145,6 +145,8 @@ class Compiler:
             "-D CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=FALSE",  # Never use system packages, always use only the libpack
             "-D CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY=TRUE",  # Same as above?
             "-D CMAKE_CXX_STANDARD=20",
+            "-T fortran=ifx",
+            "-D CMAKE_Fortran_COMPILER='C:/Program Files (x86)/Intel/oneAPI/compiler/2025.0/bin/ifx.exe'",  # Intel Fortran is called ifx now
             f"-D BISON_EXECUTABLE={self.bison_path}",
             f"-D BOOST_ROOT={self.install_dir}",
             "-D BUILD_DOC=No",
@@ -172,6 +174,8 @@ class Compiler:
             f"-D pybind11_DIR={self.install_dir}/share/cmake/pybind11",
             f"-D Python_ROOT_DIR={self.install_dir}/bin",
             f"-D Python_DIR={self.install_dir}/bin",
+            f"-D Python3_ROOT_DIR={self.install_dir}/bin",
+            f"-D Python3_DIR={self.install_dir}/bin",
             "-D Python_FIND_REGISTRY=NEVER",
             f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + to_exe(),
@@ -737,7 +741,11 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "share", "licenses", "VTK")):
                 print("  Not rebuilding VTK, it is already in the LibPack")
                 return
-        extra_args = ["-D VTK_WRAP_PYTHON=YES", "-D VTK_MODULE_ENABLE_VTK_WrappingPythonCore=YES"]
+        extra_args = [
+            "-D VTK_WRAP_PYTHON=YES",
+            "-D VTK_MODULE_ENABLE_VTK_WrappingPythonCore=YES",
+            "-D VTK_PYTHON_SITE_PACKAGES_SUFFIX=bin/Lib/site-packages/",
+        ]
         if sys.platform.startswith("win32"):
             extra_args.append(
                 "-D VTK_MODULE_ENABLE_VTK_IOIOSS=NO",  # Workaround for bug in Visual Studio MSVC 143
@@ -1001,7 +1009,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "medfile.h")):
                 print("  Not rebuilding medfile, it is already in the LibPack")
                 return
-        extra_args = ["-D MEDFILE_USE_UNICODE=On"]
+        extra_args = ["-D MEDFILE_USE_UNICODE=On", "-D MEDFILE_BUILD_TESTS=OFF"]
         old_strict_mode = self.strict_mode
         self.strict_mode = False
         self._build_standard_cmake(extra_args)
@@ -1112,9 +1120,11 @@ class Compiler:
 
     def build_opencamlib(self, _: None):
         if self.skip_existing:
-            os.path.join(self.install_dir, "bin", "Lib", "site-packages", "opencamlib")
-            print("  Not rebuilding opencamlib, it is already in the LibPack")
-            return
+            if os.path.exists(
+                os.path.join(self.install_dir, "bin", "Lib", "site-packages", "opencamlib")
+            ):
+                print("  Not rebuilding opencamlib, it is already in the LibPack")
+                return
         extra_args = ["-D BUILD_CXX_LIB=OFF", "-D BUILD_PY_LIB=ON", "-D BUILD_DOC=OFF"]
         self._build_standard_cmake(extra_args)
 
