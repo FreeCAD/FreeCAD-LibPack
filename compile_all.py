@@ -473,6 +473,7 @@ class Compiler:
                     "address-model=64",
                     f"architecture={arch}",
                     "link=static,shared",
+                    "cxxstd=20",
                     str(self.mode).lower(),
                     f"--prefix={install_dir}",
                     "--layout=versioned",
