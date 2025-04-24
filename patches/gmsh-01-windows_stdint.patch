@@ -1,0 +1,13 @@
+@@@ contrib/metis/GKlib/ms_stdint.h @@@
+@@ -2287,16 +2287,174 @@
+  types%0A%0A
++#if defined(_MSC_VER) && _MSC_VER %3E= 1600%0A  // MSVC 2010+ supports stdint.h%0A  #include %3Cstdint.h%3E%0A  #define __STDINT_DEFINED%0A#endif%0A%0A#ifndef __STDINT_DEFINED%0A
+ // 7.18.
+@@ -3372,32 +3372,33 @@
+ uint_fast64_t;%0A%0A
++%0A
+ // 7.18.1.4 Inte
+@@ -3753,24 +3753,32 @@
+ uintmax_t;%0A%0A
++#endif%0A%0A
+ %0A// 7.18.2 L
