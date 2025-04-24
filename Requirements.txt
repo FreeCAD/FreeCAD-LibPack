@@ -1,5 +1,5 @@
 # NOTE: These are the requirements for the LibPack-generation scripts, NOT for FreeCAD. They do not describe
 # the contents of the LibPack (for that see config.json)
 
-diff-match-patch
+diff_match_patch
 requests

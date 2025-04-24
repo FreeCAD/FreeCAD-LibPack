@@ -52,8 +52,9 @@ except ImportError:
 import compile_all
 
 path_to_7zip = "C:\\Program Files\\7-Zip\\7z.exe"
-path_to_bison = "C:\\Program Files\\win_flex_bison\\win_bison.exe"
-devel_init_script = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat"
+path_to_bison = "C:\\Program Files\\win-flex-bison\\win_bison.exe"
+devel_init_script_x64 = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat"
+devel_init_script_arm64 = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsarm64.bat"
 
 
 def remove_readonly(func, path, _) -> None:
@@ -120,15 +121,22 @@ def fetch_remote_data(config: dict, skip_existing: bool = False):
     for item in content:
         if skip_existing and os.path.exists(item["name"]):
             continue
-        if "git-repo" in item and "git-ref" in item:
-            clone(item["name"], item["git-repo"], item["git-ref"])
-        elif "git-repo" in item:
-            clone(item["name"], item["git-repo"])
-        elif "git-ref" in item:
-            print(f"ERROR: found a git ref without a git repo for {item['name']}")
+        if "git-repo" in item:
+            clone(
+                item["name"],
+                item["git-repo"],
+                item["git-ref"] if "git-ref" in item else None,
+                item["git-hash"] if "git-hash" in item else None,
+            )
+        elif "git-ref" in item or "git-hash" in item:
+            print(f"ERROR: found a git ref/hash without a git repo for {item['name']}")
             exit()
         elif "url" in item:
             download(item["name"], item["url"])
+        elif "url-ARM64" in item and platform.machine() == "ARM64":
+            download(item["name"], item["url-ARM64"])
+        elif "url-x64" in item:
+            download(item["name"], item["url-x64"])
         else:
             # Just make the directory, presumably later code will know what to do
             os.makedirs(item["name"], exist_ok=True)
@@ -139,7 +147,7 @@ def fetch_remote_data(config: dict, skip_existing: bool = False):
             os.chdir(cwd)
 
 
-def clone(name: str, url: str, ref: str = None):
+def clone(name: str, url: str, ref: str = None, hash: str = None):
     """Shallow clones a git repo at the given ref using a system-installed git"""
     try:
         if ref is None:
@@ -149,8 +157,17 @@ def clone(name: str, url: str, ref: str = None):
         args = ["git", "clone"]
         if ref is not None:
             args.extend(["--branch", ref])
-        args.extend(["--depth", "1", "--recurse-submodules", url, name])
+        elif hash is None:
+            args.extend(["--depth", "1"])
+        args.extend(["--recurse-submodules", url, name])
         subprocess.run(args, capture_output=True, check=True)
+
+        if hash is not None:
+            print(f"  Checking out {hash}")
+            os.chdir(name)
+            subprocess.run(["git", "checkout", hash], capture_output=True, check=True)
+            os.chdir("..")
+
     except subprocess.CalledProcessError as e:
         print(f"ERROR: failed to clone git repo {url} at ref {ref}")
         print(e.output)
@@ -177,7 +194,7 @@ def decompress(name: str, filename: str):
         try:
             subprocess.run([path_to_7zip, "x", filename], capture_output=True, check=True)
         except subprocess.CalledProcessError as e:
-            print("ERROR: failed to unzip {filename} at from {name} using {path_to_7zip}")
+            print(f"ERROR: failed to unzip {filename} at from {name} using {path_to_7zip}")
             print(e.output)
             exit(e.returncode)
     elif (
@@ -314,7 +331,10 @@ if __name__ == "__main__":
             skip_existing=args["no_skip_existing_build"],
             mode=mode,
         )
-        compiler.init_script = devel_init_script
+        if platform.machine() == "ARM64":
+            compiler.init_script = devel_init_script_arm64
+        else:
+            compiler.init_script = devel_init_script_x64
         compiler.compile_all()
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files
