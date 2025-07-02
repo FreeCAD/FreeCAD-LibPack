@@ -2,7 +2,7 @@ This repository is to provide libraries needed to compile FreeCAD under Windows.
 
 The current LibPack, v3.1, is tested to work with [Microsoft Visual Studio](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B) version 17.12, e.g. MSVC 143, and is known to not work with earlier versions (e.g. Visual Studio 2019 will not work with LibPack v3, and must use LibPack v2.11) It should be possible to use other compilers like MinGW, however this is not tested. This LibPack only supports FreeCAD compilation in Release or RelWithDebInfo mode. It may be possible to compile the LibPack in Debug mode, but changes will certainly be required (and patches are welcome!). In particular, the pip installation of Numpy will have to be adjusted to compile a debug version of Numpy, which will otherwise fail to load from a debug compilation of Python.
 
-For information how to use the LibPack to compile, see this Wiki page: https://wiki.freecadweb.org/Compile_on_Windows
+For information how to use the LibPack to compile, see the [Wiki Page][Compiling].
 
 ## Building the LibPack ##
 
@@ -50,3 +50,6 @@ Arguments:
 * `-s`, `--silent` -- I kow what I'm doing, don't ask me any questions
 * `--7zip` -- Path to 7-zip executable if not in PATH
 * `--bison` -- Path to Bison executable if not in PATH
+
+
+[Compiling]: https://wiki.freecad.org/Compile_on_Windows
