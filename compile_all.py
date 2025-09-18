@@ -266,7 +266,7 @@ class Compiler:
                     print(e.stderr.decode("utf-8"))
                 exit(e.returncode)
             except FileNotFoundError as e:
-                print("Could not find file: {e}")
+                print(f"Could not find file: {e}")
                 exit(-1)
             bin_dir = os.path.join(self.install_dir, "bin")
             dll_dir = os.path.join(bin_dir, "DLLs")
