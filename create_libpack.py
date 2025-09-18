@@ -40,13 +40,13 @@ import path_cleaner
 try:
     import requests
 except ImportError:
-    print("Please pip --install requests")
+    print("Please pip install requests")
     exit(1)
 
 try:
     import diff_match_patch
 except ImportError:
-    print("Please pip --install diff-match-patch")
+    print("Please pip install diff-match-patch")
     exit(1)
 
 import compile_all
