@@ -1103,6 +1103,7 @@ class Compiler:
             "-D USE_SUPERBUILD=OFF",
             "-D USE_GUI=OFF",
             "-D USE_INTERNAL_TCL=OFF",
+            "-D USE_NATIVE_ARCH=OFF",
             f"-D TCL_DIR={self.install_dir}",
             f"-D TK_DIR={self.install_dir}",
             "-D USE_OCC=On",
