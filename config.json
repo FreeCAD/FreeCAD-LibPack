@@ -231,6 +231,12 @@
             "git-repo": "https://github.com/jbeder/yaml-cpp",
             "git-ref":"0.8.0"
         },
+		{
+			"name": "ifcopenshell",
+		    "git-repo": "https://github.com/IfcOpenShell/IfcOpenShell",
+		    "git-hash": "f5220fba56761a7dad71e9eb3d1c372b9fdf885f",
+		    "note": "Using specific commit to support Windows ARM builds",
+		},
         {
             "name": "opencamlib",
             "git-repo": "https://github.com/aewallin/opencamlib",
