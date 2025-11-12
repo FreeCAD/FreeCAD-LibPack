@@ -237,7 +237,7 @@
 			"name": "ifcopenshell",
 		    "git-repo": "https://github.com/IfcOpenShell/IfcOpenShell",
 		    "git-hash": "f5220fba56761a7dad71e9eb3d1c372b9fdf885f",
-		    "note": "Using specific commit to support Windows ARM builds",
+		    "note": "Using specific commit to support Windows ARM builds"
 		},
         {
             "name": "opencamlib",
