@@ -238,7 +238,6 @@ call :RunCMake -DCMAKE_INSTALL_PREFIX="%INSTALL_DIR%\proj-9.2.1" ^
     -DSQLITE3_LIBRARY=%INSTALL_DIR%\sqlite3\lib\sqlite3.lib ^
     -DENABLE_TIFF=Off -DENABLE_CURL=Off -DBUILD_PROJSYNC=Off ^
     -DBUILD_SHARED_LIBS=Off ^
-    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
     -DBUILD_TESTING=Off
 IF NOT %ERRORLEVEL%==0 GOTO :Error
 call :BuildSolution "%DEPENDENCY_DIR%\%BUILD_DIR%\PROJ.sln" %BUILD_CFG%
@@ -272,7 +271,7 @@ IF /I "%VS_PLATFORM%"=="ARM64" (
     echo "Applying ARM64 Patches for Mpir"
     git apply "%~dp0patches\mpir-arm64-changes.patch" --unidiff-zero --ignore-whitespace
 )
--IF NOT %ERRORLEVEL%==0 GOTO :Error
+IF NOT %ERRORLEVEL%==0 GOTO :Error
 cd msvc
 cd vs%VS_VER:~2,2%
 call .\msbuild.bat gc LIB %VS_PLATFORM% %DEBUG_OR_RELEASE%
@@ -300,9 +299,8 @@ if NOT "%USE_STATIC_RUNTIME%"=="FALSE" git apply "%~dp0patches\mpfr_runtime.patc
 IF NOT %ERRORLEVEL%==0 GOTO :Error
 IF /I "%VS_PLATFORM%"=="ARM64" (
     echo "Applying ARM64 Patches for Mpir"
-    git apply "%~dp0patches\mpir-arm64-changes.patch" --unidiff-zero --ignore-whitespace
+    git apply "%~dp0patches\mpfr-arm64-changes.patch" --unidiff-zero --ignore-whitespace
 )
--IF NOT %ERRORLEVEL%==0 GOTO :Error
 if "%VS_VER%"=="2017" (
   set mpfr_sln=build.vc15
   set orig_platform_toolset=v141
@@ -381,6 +379,7 @@ if not exist "%DEPENDENCY_DIR%\project-config.jam". (
     call bootstrap %BOOST_BOOTSTRAP_VER%
     IF NOT %ERRORLEVEL%==0 GOTO :Error
 )
+
 if /I "%TARGET_ARCH%"=="x64" (
     set B2_ARCH_FEATURE=x86
 ) else if /I "%TARGET_ARCH%"=="arm64" (
@@ -523,7 +522,7 @@ set DEPENDENCY_DIR=N/A
 set PYTHON_AMD64_POSTFIX=
 IF /I "%TARGET_ARCH%"=="x64"   set "PYTHON_AMD64_POSTFIX=-amd64"
 IF /I "%TARGET_ARCH%"=="arm64" set "PYTHON_AMD64_POSTFIX=-arm64"
-set "PYTHON_INSTALLER=python-%PYTHON_VERSION%%PYTHON_AMD64_POSTFIX%.exe
+set "PYTHON_INSTALLER=python-%PYTHON_VERSION%%PYTHON_AMD64_POSTFIX%.exe"
 
 IF "%IFCOS_INSTALL_PYTHON%"=="TRUE" (
     cd "%DEPS_DIR%"
@@ -679,17 +678,18 @@ cd "%DEPENDENCY_DIR%"
 set ZSTD_INCLUDE=%INSTALL_DIR%\zstd\include
 set ZSTD_LIB_DEBUG=%INSTALL_DIR%\zstd\lib\zstd_static.lib
 set ZSTD_LIB_RELEASE=%INSTALL_DIR%\zstd\lib\zstd_static.lib
+:: Build fails to build benchmark tools with -DWITH_BENCHMARK_TOOLS=ON
 call :RunCMake -DCMAKE_INSTALL_PREFIX="%INSTALL_DIR%\rocksdb" ^
-        -DROCKSDB_INSTALL_ON_WINDOWS=ON ^
-        -DFAIL_ON_WARNINGS=OFF ^
-        -DWITH_TESTS=OFF ^
-        -DWITH_TOOLS=OFF ^
-        -DWITH_BENCHMARK_TOOLS=OFF ^
-        -DWITH_ZSTD=ON ^
-        -DZSTD_INCLUDE_DIR="%ZSTD_INCLUDE%" ^
-        -DZSTD_LIBRARY_DEBUG="%ZSTD_LIB_DEBUG%" ^
-        -DZSTD_LIBRARY_RELEASE="%ZSTD_LIB_RELEASE%" ^
-        -DPORTABLE=1
+    -DROCKSDB_INSTALL_ON_WINDOWS=ON ^
+    -DFAIL_ON_WARNINGS=OFF ^
+    -DWITH_TESTS=OFF ^
+    -DWITH_TOOLS=OFF ^
+    -DWITH_BENCHMARK_TOOLS=OFF ^
+    -DWITH_ZSTD=ON ^
+    -DZSTD_INCLUDE_DIR="%ZSTD_INCLUDE%" ^
+    -DZSTD_LIBRARY_DEBUG="%ZSTD_LIB_DEBUG%" ^
+    -DZSTD_LIBRARY_RELEASE="%ZSTD_LIB_RELEASE%" ^
+    -DPORTABLE=1
 IF NOT %ERRORLEVEL%==0 GOTO :Error
 call :BuildSolution "%DEPENDENCY_DIR%\%BUILD_DIR%\rocksdb.sln" %BUILD_CFG%
 IF NOT %ERRORLEVEL%==0 GOTO :Error
