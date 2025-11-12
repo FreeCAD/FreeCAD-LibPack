@@ -1021,7 +1021,7 @@ class Compiler:
                 return
             shutil.rmtree(os.path.join(self.install_dir, "include", "rapidjson"))
         shutil.copytree("include", os.path.join(self.install_dir, "include"), dirs_exist_ok=True)
-        
+
     def build_ifcopenshell(self, options: dict):
         if os.path.exists(os.path.join(self.install_dir, "include", "ifcparse")):
             if self.skip_existing:
@@ -1036,7 +1036,7 @@ class Compiler:
         patch_files = {
             "build-deps.cmd": win_dir,
             "mpfr-arm64-changes.patch": win_patches_dir,
-            "mpir-arm64-changes.patch": win_patches_dir
+            "mpir-arm64-changes.patch": win_patches_dir,
         }
         for name, dest_dir in patch_files.items():
             src_file = os.path.join(src_patches_dir, name)
@@ -1053,8 +1053,13 @@ class Compiler:
             env["PYTHONHOME"] = os.path.join(self.install_dir, "bin")
         build_deps_cmd = os.path.join(win_dir, "build-deps.cmd")
         try:
-            subprocess.run([self.init_script, "&", build_deps_cmd, vs_platform, build_cfg],
-                        check=True, capture_output=True, env=env, cwd=win_dir)
+            subprocess.run(
+                [self.init_script, "&", build_deps_cmd, vs_platform, build_cfg],
+                check=True,
+                capture_output=True,
+                env=env,
+                cwd=win_dir,
+            )
         except subprocess.CalledProcessError as e:
             print(f"ERROR: IfcOpenShell build-deps.cmd failed!")
             print(e.stdout.decode("utf-8", errors="ignore"))
@@ -1064,8 +1069,13 @@ class Compiler:
         run_cmake_bat = os.path.join(win_dir, "run-cmake.bat")
         if os.path.exists(run_cmake_bat):
             try:
-                subprocess.run([self.init_script, "&", run_cmake_bat, vs_platform, build_cfg],
-                            check=True, capture_output=True, env=env, cwd=win_dir)
+                subprocess.run(
+                    [self.init_script, "&", run_cmake_bat, vs_platform, build_cfg],
+                    check=True,
+                    capture_output=True,
+                    env=env,
+                    cwd=win_dir,
+                )
             except subprocess.CalledProcessError as e:
                 print(f"ERROR: IfcOpenShell CMake configuration failed!")
                 print(e.stdout.decode("utf-8", errors="ignore"))
@@ -1075,8 +1085,13 @@ class Compiler:
         install_bat = os.path.join(win_dir, "install-ifcopenshell.bat")
         if os.path.exists(install_bat):
             try:
-                subprocess.run([self.init_script, "&", install_bat, vs_platform, build_cfg],
-                            check=True, capture_output=True, env=env, cwd=win_dir)
+                subprocess.run(
+                    [self.init_script, "&", install_bat, vs_platform, build_cfg],
+                    check=True,
+                    capture_output=True,
+                    env=env,
+                    cwd=win_dir,
+                )
             except subprocess.CalledProcessError as e:
                 print(f"ERROR: IfcOpenShell installation failed!")
                 print(e.stdout.decode("utf-8", errors="ignore"))
@@ -1096,7 +1111,9 @@ class Compiler:
                 if os.path.exists(src_path):
                     dest_path = os.path.join(self.install_dir, subdir)
                     shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
-            site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages", "ifcopenshell")
+            site_packages = os.path.join(
+                self.install_dir, "bin", "Lib", "site-packages", "ifcopenshell"
+            )
             os.makedirs(site_packages, exist_ok=True)
             for root, dirs, files in os.walk(ifcos_install_dir):
                 for file in files:
@@ -1112,10 +1129,10 @@ class Compiler:
                         shutil.copy2(src_item, dest_item)
                     elif os.path.isdir(src_item):
                         shutil.copytree(src_item, dest_item, dirs_exist_ok=True)
-            
+
         print("  IfcOpenShell installed successfully")
         os.chdir(self.base_dir)
-        
+
     def _get_vtk_include_path(self) -> str:
         """
         OpenCASCADE needs a manually-set include path for VTK (the find_package script provided by VTK does not provide
