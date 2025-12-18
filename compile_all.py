@@ -181,9 +181,6 @@ class Compiler:
             f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + to_exe(),
             f"-D ZLIB_DIR={self.install_dir}/lib/cmake/",
-            f"-D ZLIB_INCLUDE_DIR={self.install_dir}/include",
-            f"-D ZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib" + to_static(),
-            f"-D ZLIB_LIBRARY_DEBUG={self.install_dir}/lib/zlibd" + to_static(),
             "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",
             # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
@@ -342,7 +339,7 @@ class Compiler:
                         if os.path.exists(target):
                             os.unlink(target)
                         file.rename(target)
-            pyconfig = os.path.join("PCBuild", path.lower(), "pyconfig.h")
+            pyconfig = os.path.join("PC", "pyconfig.h")
             target = os.path.join(inc_dir, "pyconfig.h")
             if not os.path.exists(pyconfig):
                 print("ERROR: Could not locate pyconfig.h, cannot complete installation of Python")
@@ -513,7 +510,7 @@ class Compiler:
 
         # Qt needs access to zlib and libpng, and assumes they are installed at the system level. We want to
         # use the LibPack versions. The easiest thing to do is just copy the DLLs:
-        files = ["zlib.dll", "zlib1.dll", "libpng16.dll"]
+        files = ["z.dll", "libpng16.dll"]
         source = os.path.join(self.install_dir, "bin")
         destination = os.path.join(build_dir, "qtbase", "bin")
         os.makedirs(destination, exist_ok=True)
@@ -737,8 +734,10 @@ class Compiler:
         self._build_standard_cmake()
         # Qt really wants to find these under an alternate name, so just make copies...
         name_mapping = [
-            (os.path.join("lib", "zlib.lib"), os.path.join("lib", "zlib1.lib")),
-            (os.path.join("bin", "zlib.dll"), os.path.join("bin", "zlib1.dll")),
+            (os.path.join("lib", "z.lib"), os.path.join("lib", "zlib.lib")),
+            (os.path.join("bin", "z.dll"), os.path.join("bin", "zlib.dll")),
+            (os.path.join("lib", "z.lib"), os.path.join("lib", "zlib1.lib")),
+            (os.path.join("bin", "z.dll"), os.path.join("bin", "zlib1.dll")),
         ]
         for name1, name2 in name_mapping:
             full_name1 = os.path.join(self.install_dir, name1)
@@ -1041,14 +1040,20 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake")):
                 print("  Not rebuilding OpenCASCADE, it is already in the LibPack")
                 return
+        install_dir = self.install_dir
+        vtk_include_dir = self._get_vtk_include_path()
+        if os.path.sep == "\\":
+            # OpenCASCADE's CMake is not tolerant of backslashes in paths, even on Windows
+            install_dir = install_dir.replace("\\", "/")
+            vtk_include_dir = vtk_include_dir.replace("\\", "/")
         extra_args = [
-            f"-D CMAKE_MODULE_PATH={self.install_dir}/lib/cmake;{self.install_dir}/share/cmake;{self.install_dir}"
-            f"-D TCL_DIR={self.install_dir}/include",
-            f"-D TK_DIR={self.install_dir}/include",
-            f"-D FREETYPE_DIR={self.install_dir}/lib/cmake",
-            f"-D VTK_DIR={self.install_dir}/lib/cmake",
-            f"-D 3RDPARTY_VTK_INCLUDE_DIRS={self._get_vtk_include_path()}",
-            f"-D EIGEN_DIR={self.install_dir}/share/eigen3/cmake",
+            f"-D CMAKE_MODULE_PATH={install_dir}/lib/cmake;{install_dir}/share/cmake;{install_dir}"
+            f"-D TCL_DIR={install_dir}/include",
+            f"-D TK_DIR={install_dir}/include",
+            f"-D FREETYPE_DIR={install_dir}/lib/cmake",
+            f"-D VTK_DIR={install_dir}/lib/cmake",
+            f"-D 3RDPARTY_VTK_INCLUDE_DIRS={vtk_include_dir}",
+            f"-D EIGEN_DIR={install_dir}/share/eigen3/cmake",
             "-D USE_VTK=On",
             "-D USE_FREETYPE=On",
             "-D USE_RAPIDJSON=On",
@@ -1117,11 +1122,16 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "hdf5.h")):
                 print("  Not rebuilding hdf5, it is already in the LibPack")
                 return
-        # HDF5 is VERY picky about how you specify the location of zlib: you must actually set the precise path to the
-        # library file itself. TODO future work to internally detect that library name and path and fill them here
+
+        # Per the recommendation of the HDF5 developers, let HDF5 build and link to its own internal
+        # copy of ZLib, since their CMake scripts are broken when trying to use a custom compiled
+        # version. See e.g. https://github.com/HDFGroup/hdf5/issues/5303
         extra_args = [
-            f"-D ZLIB_INCLUDE_DIR={self.install_dir}/include",
-            f"-D ZLIB_LIBRARY={self.install_dir}/lib/zlib.lib",
+            "-D HDF5_BUILD_EXAMPLES=OFF",
+            "-D HDF5_BUILD_TOOLS=OFF",
+            "-D HDF5_BUILD_UTILS=OFF",
+            "-D HDF5_ENABLE_Z_LIB_SUPPORT=ON",
+            "-D ZLIB_USE_EXTERNAL=ON",
         ]
         self._build_standard_cmake(extra_args)
 
