@@ -1041,21 +1041,23 @@ class Compiler:
             src_file = os.path.join(src_patches_dir, name)
             if os.path.exists(src_file):
                 shutil.copy(src_file, dest_dir)
-        vs_version = "vs2022"
+        vs_version = "vs2022"  # TODO Un-hardcode
         platform_str = "arm64" if platform.machine() == "ARM64" else "x64"
         vs_platform = f"{vs_version}-{platform_str}"
         build_cfg = "RelWithDebInfo" if self.mode == BuildMode.RELEASE else "Debug"
         env = os.environ.copy()
         if os.path.exists(self.python_exe()):
             env["IFCOS_INSTALL_PYTHON"] = "FALSE"
-            env["PY_VER_MAJOR_MINOR"] = "313"
+            env["PY_VER_MAJOR_MINOR"] = "314"  # TODO Un-hardcode
             env["PYTHONHOME"] = os.path.join(self.install_dir, "bin")
         build_deps_cmd = os.path.join(win_dir, "build-deps.cmd")
         try:
+            print("  Running build-deps.cmd")
             subprocess.run(
                 [self.init_script, "&", build_deps_cmd, vs_platform, build_cfg],
                 check=True,
                 capture_output=True,
+                input="y\n".encode("utf-8"),
                 env=env,
                 cwd=win_dir,
             )
@@ -1068,6 +1070,7 @@ class Compiler:
         run_cmake_bat = os.path.join(win_dir, "run-cmake.bat")
         if os.path.exists(run_cmake_bat):
             try:
+                print("  Running run-cmake.bat")
                 subprocess.run(
                     [self.init_script, "&", run_cmake_bat, vs_platform, build_cfg],
                     check=True,
@@ -1084,6 +1087,7 @@ class Compiler:
         install_bat = os.path.join(win_dir, "install-ifcopenshell.bat")
         if os.path.exists(install_bat):
             try:
+                print("  Running install-ifcopenshell.bat")
                 subprocess.run(
                     [self.init_script, "&", install_bat, vs_platform, build_cfg],
                     check=True,
@@ -1215,6 +1219,7 @@ class Compiler:
                 print("  Not rebuilding netgen, it is already in the LibPack")
                 return
         extra_args = [
+            f"-D USE_NATIVE_ARCH=OFF",  # prevent the use of AVX512, for portability
             f"-D CMAKE_FIND_ROOT_PATH={self.install_dir}",
             "-D USE_SUPERBUILD=OFF",
             "-D USE_GUI=OFF",
