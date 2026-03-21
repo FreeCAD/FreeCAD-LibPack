@@ -872,10 +872,8 @@ class Compiler:
             extra_args.append(
                 "-D VTK_MODULE_ENABLE_VTK_ioss=NO",  # Workaround for bug in Visual Studio MSVC 143
             )
-            extra_args.append(
-                "-D CMAKE_CXX_MP_FLAG=YES"
-            )
-            
+            extra_args.append("-D CMAKE_CXX_MP_FLAG=YES")
+
         print("  (VTK is big, this will take some time)")
 
         old_strict_mode = self.strict_mode
