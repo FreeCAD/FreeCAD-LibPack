@@ -449,7 +449,7 @@ class Compiler:
             else:
                 shutil.rmtree(wheel_dir)
         os.makedirs(wheel_dir)
-        zip_url = "https://github.com/cgohlke/win_arm64-wheels/releases/download/v2025.3.31/2025.3.31-experimental-cp313-win_arm64.whl.zip"
+        zip_url = "https://github.com/cgohlke/win_arm64-wheels/releases/download/v2025.7.7/2025.7.7-experimental-cp313-win_arm64.whl.zip"
         response = requests.get(zip_url)
         if response.status_code != 200:
             print("Failed to download Windows-on-ARM fallback Python requirements")
