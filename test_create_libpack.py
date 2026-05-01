@@ -177,6 +177,16 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         self.assertNotIn(None, call_data)
         self.assertNotIn("--branch", call_data)
 
+    @patch("os.chdir")
+    @patch("subprocess.run")
+    def test_clone_qt_skips_submodule_init(self, run_mock: MagicMock, _):
+        """Qt's supermodule has many submodules we do not build, and its configure.bat
+        initializes only the ones we need, so the clone path skips submodule init."""
+        create_libpack.clone("qt", "https://qt.url", "v6.11.0")
+        for call in run_mock.call_args_list:
+            args = call[0][0]
+            self.assertNotIn("submodule", args)
+
     @patch("subprocess.run")
     def test_exception_is_caught_and_calls_exit(self, run_mock: MagicMock):
         """When given a repo and a ref, git clone is set up appropriately"""

@@ -168,11 +168,18 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
             subprocess.run(["git", "checkout", hash], capture_output=True, check=True)
             os.chdir("..")
 
-        os.chdir(name)
-        subprocess.run(
-            ["git", "submodule", "update", "--init", "--recursive"], capture_output=True, check=True
-        )
-        os.chdir("..")
+        # Qt's qt5 supermodule contains dozens of submodules and we only build a few. Its
+        # configure.bat handles selective submodule initialization via -init-submodules, so
+        # cloning the supermodule alone is much faster than recursively initializing every
+        # submodule here.
+        if name != "qt":
+            os.chdir(name)
+            subprocess.run(
+                ["git", "submodule", "update", "--init", "--recursive"],
+                capture_output=True,
+                check=True,
+            )
+            os.chdir("..")
 
     except subprocess.CalledProcessError as e:
         print(f"ERROR: failed to clone git repo {url} at ref {ref}")
