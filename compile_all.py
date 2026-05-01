@@ -1271,3 +1271,23 @@ class Compiler:
         if sys.platform == "win32":
             extra_args.extend(["-D GTEST_FORCE_SHARED_CRT=ON", "-D GTEST_DISABLE_PTHREADS=ON"])
         self._build_standard_cmake(extra_args)
+
+    def build_ifcopenshell(self, _=None):
+        """On x64 Windows ifcopenshell is installed via pip from PyPI. On ARM64 Windows no
+        PyPI wheel exists, so the working directory is populated from the prebuilt zip at
+        builds.ifcopenshell.org and the package directory is copied into site-packages."""
+        if platform.machine() != "ARM64" or sys.platform != "win32":
+            return
+        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
+        target = os.path.join(site_packages, "ifcopenshell")
+        if self.skip_existing and os.path.exists(target):
+            print("  Not reinstalling ifcopenshell, it is already in the LibPack")
+            return
+        source = os.path.join(os.getcwd(), "ifcopenshell")
+        if not os.path.exists(source):
+            print(f"ERROR: extracted ifcopenshell directory not found at {source}")
+            exit(1)
+        os.makedirs(site_packages, exist_ok=True)
+        if os.path.exists(target):
+            shutil.rmtree(target, onerror=remove_readonly)
+        shutil.copytree(source, target)

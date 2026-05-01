@@ -22,11 +22,14 @@
                 "debugpy==1.8.20",
                 "definitions==0.2.0",
                 "defusedxml==0.7.1",
+                "elementpath==5.1.1",
                 "fastapi==0.118.3",
                 "fonttools==4.62.1",
                 "h11==0.16.0",
                 "httptools==0.7.1",
                 "idna==3.13",
+                "ifcopenshell==0.8.5; platform_machine != \"ARM64\"",
+                "isodate==0.7.2",
                 "joblib==1.5.3",
                 "kiwisolver==1.5.0",
                 "ladybug-core==0.44.42",
@@ -54,6 +57,7 @@
                 "scipy==1.17.1",
                 "sets==0.3.2",
                 "setuptools==82.0.1",
+                "shapely==2.1.2; platform_machine != \"ARM64\"",
                 "six==1.17.0",
                 "sniffio==1.3.1",
                 "starlette==0.48.0",
@@ -66,7 +70,8 @@
                 "vermin==1.8.0",
                 "watchfiles==1.1.1",
                 "websockets==16.0",
-                "wheel==0.47.0"
+                "wheel==0.47.0",
+                "xmlschema==4.3.1"
             ]
         },
         {
@@ -244,6 +249,11 @@
             "name": "googletest",
             "git-repo": "https://github.com/google/googletest",
             "git-hash": "d72f9c8aea6817cdf1ca0ac10887f328de7f3da2"
+        },
+        {
+            "name": "ifcopenshell",
+            "url-ARM64": "https://s3.amazonaws.com/ifcopenshell-builds/ifcopenshell-python-314-v0.8.5-18c035e-win-arm64.zip",
+            "note": "x64 is installed via pip from PyPI; ARM64 has no PyPI wheel, so we extract the prebuilt zip from builds.ifcopenshell.org. Both architectures are pinned to v0.8.5."
         }
     ]
 }
