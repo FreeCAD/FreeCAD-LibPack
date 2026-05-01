@@ -175,7 +175,7 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
         if name != "qt":
             os.chdir(name)
             subprocess.run(
-                ["git", "submodule", "update", "--init", "--recursive"],
+                ["git", "submodule", "update", "--init", "--recursive", "--depth", "1"],
                 capture_output=True,
                 check=True,
             )
