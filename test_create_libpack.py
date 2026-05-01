@@ -166,6 +166,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         call_data: list = run_mock.call_args_list[0][0][0]
         self.assertIn("https://some.url", call_data)
         self.assertIn("some_git_ref", call_data)
+        self.assertIn("--depth", call_data)
         self.assertEqual(call_data[-1], "name")
 
     @patch("os.chdir")

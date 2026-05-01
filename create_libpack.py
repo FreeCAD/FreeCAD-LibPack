@@ -156,7 +156,7 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
             print(f"Cloning {url} at {ref}")
         args = ["git", "clone"]
         if ref is not None:
-            args.extend(["--branch", ref])
+            args.extend(["--branch", ref, "--depth", "1"])
         elif hash is None:
             args.extend(["--depth", "1"])
         args.extend([url, name])

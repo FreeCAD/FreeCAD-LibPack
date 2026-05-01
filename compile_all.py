@@ -529,19 +529,41 @@ class Compiler:
         os.mkdir(build_dir)
         os.chdir(build_dir)
 
+    def _run_streaming(self, args, log_filename: str = "build_log.txt"):
+        """Run a subprocess and stream its combined stdout and stderr to log_filename one
+        line at a time. The log file is opened in append mode and line-buffered so an
+        external watcher can tail it in real time. The output of this invocation is also
+        retained in memory so that, on a non-zero exit, it can be attached to the raised
+        CalledProcessError exactly as subprocess.run would have done."""
+        captured_lines: List[str] = []
+        with open(log_filename, "a", encoding="utf-8", buffering=1) as logf:
+            proc = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            for line in proc.stdout:
+                logf.write(line)
+                captured_lines.append(line)
+            return_code = proc.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(
+                return_code, args, output="".join(captured_lines).encode("utf-8")
+            )
+
     def _run_cmake(self, args):
         cmake_setup_options = [self.init_script, "&", "cmake"]
         cmake_setup_options.extend(args)
         try:
-            process = subprocess.run(cmake_setup_options, check=True, capture_output=True)
-            with open("build_log.txt", "a", encoding="utf-8") as f:
-                f.write(process.stdout.decode("utf-8"))
+            self._run_streaming(cmake_setup_options, "build_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: cMake failed!")
             print(f"Command: {' '.join(cmake_setup_options)}")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
     def _cmake_configure(self, extra_args: List[str] = None):
