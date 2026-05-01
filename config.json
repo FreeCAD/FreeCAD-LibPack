@@ -190,7 +190,7 @@
         {
             "name":"hdf5",
             "git-repo":"https://github.com/HDFGroup/hdf5",
-            "git-ref":"hdf5-1_14_6",
+            "git-ref":"hdf5-1.14.6",
             "note":"Salome medfile 6.0.1 requires HDF5 1.14.x, no later version may be used"
         },
         {
@@ -212,8 +212,7 @@
         {
             "name":"icu",
             "git-repo":"https://github.com/unicode-org/icu",
-            "git-ref":"release-78-3",
-            "patches": ["patches/icu-01-remove_makedata_target.patch"]
+            "git-ref":"release-78.3"
         },
         {
             "name":"xercesc",
