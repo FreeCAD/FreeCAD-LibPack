@@ -817,7 +817,12 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "harfbuzz")):
                 print("  Not rebuilding harfbuzz, it is already in the LibPack")
                 return
-        self._build_standard_cmake()
+        # The experimental harfbuzz-gpu library was introduced in HarfBuzz 14.x and fails
+        # to link as a shared library on Windows because it references private symbols
+        # (_hb_NullPool, _hb_CrapPool) that the main harfbuzz DLL does not export.
+        # Nothing in the LibPack consumes harfbuzz-gpu, so it is disabled.
+        extra_args = ["-D HB_BUILD_GPU=OFF"]
+        self._build_standard_cmake(extra_args)
 
     def build_libpng(self, _=None):
         if self.skip_existing:
