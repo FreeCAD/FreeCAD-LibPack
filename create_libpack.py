@@ -242,6 +242,33 @@ def write_manifest(outer_config: dict, mode_used: compile_all.BuildMode):
         f.write(outer_config["LibPack-version"])
 
 
+VS_VERSION_RANGES = {
+    "2022": "[17.0,18.0)",
+    "2026": "[18.0,19.0)",
+}
+
+
+def build_vswhere_args(vs_version: str) -> list:
+    """Build the vswhere command line for the requested Visual Studio selection. The
+    'latest' value selects whatever vswhere considers newest. Nicer aliases like
+    '2022' and '2026' translate to vswhere's -version range syntax. Any other value is
+    sent to -version directly, allowing callers to pass a raw range such as
+    '[17.0,18.0)' if needed."""
+    base = [
+        vswhere,
+        "-products",
+        "*",
+        "-requires",
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",  # Dirty lie, works on ARM too
+        "-property",
+        "installationPath",
+    ]
+    if vs_version == "latest":
+        return [vswhere, "-latest"] + base[1:]
+    version_range = VS_VERSION_RANGES.get(vs_version, vs_version)
+    return [base[0], "-version", version_range] + base[1:]
+
+
 @contextmanager
 def prevent_sleep_mode():
     system = platform.system()
@@ -313,6 +340,14 @@ if __name__ == "__main__":
     )
     parser.add_argument("--7zip", help="Path to 7-zip executable", default=path_to_7zip)
     parser.add_argument("--bison", help="Path to Bison executable", default=path_to_bison)
+    parser.add_argument(
+        "--vs-version",
+        help=(
+            "Visual Studio toolchain to build with. Accepts 'latest' (default), "
+            "'2022', '2026', or a raw vswhere -version range such as '[17.0,18.0)'."
+        ),
+        default="latest",
+    )
     parser.add_argument("path-to-final-libpack-dir", nargs="?", default="./")
     args = vars(parser.parse_args())
 
@@ -345,18 +380,15 @@ if __name__ == "__main__":
             mode=mode,
         )
         vs_install_path = subprocess.check_output(
-            [
-                vswhere,
-                "-latest",
-                "-products",
-                "*",
-                "-requires",
-                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",  # Misleading, works on ARM too
-                "-property",
-                "installationPath",
-            ],
+            build_vswhere_args(args["vs_version"]),
             text=True,
         ).strip()
+        if not vs_install_path:
+            print(
+                f"ERROR: vswhere returned no Visual Studio installation matching "
+                f"--vs-version={args['vs_version']!r}"
+            )
+            exit(1)
 
         base_path = Path(vs_install_path) / "VC" / "Auxiliary" / "Build"
         if platform.machine() == "ARM64":

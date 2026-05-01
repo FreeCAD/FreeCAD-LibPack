@@ -178,6 +178,26 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         self.assertNotIn(None, call_data)
         self.assertNotIn("--branch", call_data)
 
+    def test_build_vswhere_args_latest(self):
+        """The 'latest' value uses vswhere's -latest flag and no -version flag."""
+        args = create_libpack.build_vswhere_args("latest")
+        self.assertIn("-latest", args)
+        self.assertNotIn("-version", args)
+
+    def test_build_vswhere_args_friendly_alias(self):
+        """A friendly alias like '2022' translates to a vswhere -version range."""
+        args = create_libpack.build_vswhere_args("2022")
+        self.assertIn("-version", args)
+        idx = args.index("-version")
+        self.assertEqual(args[idx + 1], "[17.0,18.0)")
+        self.assertNotIn("-latest", args)
+
+    def test_build_vswhere_args_raw_range_passthrough(self):
+        """A raw vswhere range string is forwarded verbatim."""
+        args = create_libpack.build_vswhere_args("[16.0,17.0)")
+        idx = args.index("-version")
+        self.assertEqual(args[idx + 1], "[16.0,17.0)")
+
     @patch("os.chdir")
     @patch("subprocess.run")
     def test_clone_qt_skips_submodule_init(self, run_mock: MagicMock, _):
