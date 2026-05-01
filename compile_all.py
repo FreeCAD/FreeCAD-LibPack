@@ -239,7 +239,7 @@ class Compiler:
             arch = "x64" if platform.machine() == "AMD64" else "ARM64"
             path = "amd64" if platform.machine() == "AMD64" else "arm64"
             try:
-                subprocess.run(
+                self._run_streaming(
                     [
                         *self.init_script,
                         "&",
@@ -250,14 +250,12 @@ class Compiler:
                         str(self.mode),
                         "-e",
                     ],
-                    check=True,
-                    capture_output=True,
+                    "build_log.txt",
                 )
             except subprocess.CalledProcessError as e:
                 print("Python build failed")
-                print(e.stdout.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(e.returncode)
             except FileNotFoundError as e:
                 print(f"Could not find file: {e}")
@@ -370,19 +368,16 @@ class Compiler:
         print("  Installing the latest pip")
         path_to_python = self.python_exe()
         try:
-            subprocess.run(
-                [path_to_python, "-m", "ensurepip", "--upgrade"], capture_output=True, check=True
+            self._run_streaming(
+                [path_to_python, "-m", "ensurepip", "--upgrade"], "pip_log.txt"
             )
-            subprocess.run(
-                [path_to_python, "-m", "pip", "install", "--upgrade", "pip"],
-                capture_output=True,
-                check=True,
+            self._run_streaming(
+                [path_to_python, "-m", "pip", "install", "--upgrade", "pip"], "pip_log.txt"
             )
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to run LibPack's Python executable")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def _install_python_requirements(self, requirements):
@@ -405,16 +400,11 @@ class Compiler:
         ]
         call_args.extend(requirements)
         try:
-            subprocess.run(
-                call_args,
-                check=True,
-                capture_output=True,
-            )
+            self._run_streaming(call_args, "pip_log.txt")
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to pip install requirements")
-            print(e.output.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def build_qt(self, options: dict):
@@ -469,15 +459,12 @@ class Compiler:
             "desktop",
         ]
         try:
-            process = subprocess.run(init_command, check=True, capture_output=True)
-            with open("configure_log.txt", "a", encoding="utf-8") as f:
-                f.write(process.stdout.decode("utf-8"))
+            self._run_streaming(init_command, "configure_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: Qt configure failed!")
             print(f"Command: {' '.join(init_command)}")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
         self._cmake_build()
@@ -596,26 +583,22 @@ class Compiler:
         path_to_python = self.python_exe()
         package_name = requirement.split("==")[0]
         try:
-            # Get rid of any version that's already there.
-            subprocess.run(
+            self._run_streaming(
                 [path_to_python, "-m", "pip", "uninstall", "--yes", package_name],
-                check=True,
-                capture_output=True,
+                "pip_log.txt",
             )
         except subprocess.CalledProcessError as e:
             print(f"{package_name} was not uninstalled... continuing")
             pass
         try:
-            subprocess.run(
+            self._run_streaming(
                 [path_to_python, "-m", "pip", "install", "--ignore-installed", requirement],
-                check=True,
-                capture_output=True,
+                "pip_log.txt",
             )
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to pip install {requirement}")
-            print(e.output.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def _build_with_pip(self, options: dict):
@@ -691,7 +674,7 @@ class Compiler:
         if sys.platform.startswith("win32"):
             args = [*self.init_script, "&", "nmake", "/f", "makefile.msc"]
             try:
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 shutil.copyfile("libbz2.lib", os.path.join(self.install_dir, "lib", "libbz2.lib"))
                 shutil.copyfile("bzlib.h", os.path.join(self.install_dir, "include", "bzlib.h"))
                 shutil.copyfile(
@@ -699,9 +682,8 @@ class Compiler:
                 )
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build bzip2 using nmake")
-                print(e.output.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
         else:
             raise NotImplemented("Non-Windows compilation of bzip2 is not implemented yet")
@@ -879,7 +861,7 @@ class Compiler:
                 args = [*self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 args = [
                     *self.init_script,
                     "&",
@@ -891,7 +873,7 @@ class Compiler:
                 ]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 if self.mode == BuildMode.RELEASE:
                     self.force_copy(["bin", "tclsh86t.exe"], ["bin", "tclsh.exe"])
                     self.force_copy(["bin", "tcl86t.dll"], ["bin", "tcl86.dll"])
@@ -902,9 +884,8 @@ class Compiler:
                     self.force_copy(["lib", "tcl86tg.lib"], ["lib", "tcl86.lib"])
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tcl using nmake")
-                print(e.stdout.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
         else:
             raise NotImplemented("Non-Windows compilation of tcl is not implemented yet")
@@ -921,7 +902,7 @@ class Compiler:
                 args = [*self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 args = [
                     *self.init_script,
                     "&",
@@ -933,7 +914,7 @@ class Compiler:
                 ]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 if self.mode == BuildMode.RELEASE:
                     self.force_copy(["bin", "wish86t.exe"], ["bin", "wish.exe"])
                     self.force_copy(["bin", "tk86t.dll"], ["bin", "tk86.dll"])
@@ -944,9 +925,8 @@ class Compiler:
                     self.force_copy(["lib", "tk86tg.lib"], ["lib", "tk86.lib"])
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tk using nmake")
-                print(e.output.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
         else:
             raise NotImplemented("Non-Windows compilation of tk is not implemented yet")
@@ -1111,12 +1091,11 @@ class Compiler:
         path_to_python = self.python_exe()
         args = [path_to_python, "setup.py", "install"]
         try:
-            subprocess.run(args, check=True, capture_output=True)
+            self._run_streaming(args, "build_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to build PyCXX using its custom build script")
-            print(e.output.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def build_icu(self, _: None):
@@ -1147,12 +1126,11 @@ class Compiler:
                 "allinone.sln",
             ]
             try:
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build ICU using its custom build script")
-                print(e.output.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
             os.chdir(os.path.join("..", ".."))
             bin_dir = os.path.join(self.install_dir, "bin")
