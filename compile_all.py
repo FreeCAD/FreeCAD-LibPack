@@ -453,7 +453,7 @@ class Compiler:
         for f in files:
             shutil.copy(os.path.join(source, f), destination)
 
-        submodules = ["qtbase", "qtsvg", "qtdeclarative", "qttools"]
+        submodules = ["qtbase", "qtsvg", "qtdeclarative", "qttools", "qtremoteobjects"]
         init_command = [
             self.init_script,
             "&",
