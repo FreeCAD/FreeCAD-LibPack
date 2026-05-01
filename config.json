@@ -135,8 +135,9 @@
         },
         {
             "name":"libclang",
-	        "url-x64":"https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_22.1.2-based-windows-vs2022_64.7z",
-	        "url-ARM64":"https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_22.1.2-based-windows-vs2022_arm64.7z"
+	        "url-x64":"https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_21.1.2-based-windows-vs2022_64.7z",
+	        "url-ARM64":"https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_21.1.2-based-windows-vs2022_arm64.7z",
+	        "note":"Pinned at 21.1.2; 22.x triggers shiboken parser bugs that confuse same-named enums across sibling Qt classes (QLocalSocket vs QLocalServer SocketOption, QStringConverter::Default, etc.). Revisit after PySide 6.11.1 or later."
 	    },
         {
             "name":"pyside",
