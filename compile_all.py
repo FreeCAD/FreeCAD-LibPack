@@ -417,8 +417,9 @@ class Compiler:
                 print(e.stderr.decode("utf-8"))
             exit(1)
 
-    def _build_qt_from_source(self, options: dict):
-        """Actually build Qt from source."""
+    def build_qt(self, options: dict):
+        """Build Qt from source. Always builds qtbase, qtsvg, qtdeclarative, and qttools
+        against the LibPack's own zlib and libpng."""
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
                 print("Not building Qt from source, it already seems to be in the LibPack")
@@ -482,30 +483,6 @@ class Compiler:
         self._cmake_build()
         self._cmake_install()
         os.chdir(old_cwd)
-
-    def build_qt(self, options: dict):
-        """Doesn't really "build" Qt, just copies the pre-compiled libraries from the configured path,
-        unless running in Windows-on-ARM, in which case we *have* to build Qt from source in order to get
-        the OpenGL module"""
-        if (
-            "install-directory" not in options
-            or not os.path.exists(options["install-directory"])
-            or platform.machine() == "ARM64"
-        ):
-            self._build_qt_from_source(options)
-            return
-        qt_dir = options["install-directory"]
-        if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "metatypes")):
-                print(
-                    "  Not re-copying, instead just using existing Qt in the LibPack installation path"
-                )
-                return
-        if not os.path.exists(qt_dir):
-            print(f"Error: specified Qt installation path does not exist ({qt_dir})")
-            exit(1)
-        print("  (Note that Qt isn't really 'built,' it is just copied from a local installation)")
-        shutil.copytree(qt_dir, self.install_dir, dirs_exist_ok=True)
 
     def build_boost(self, _=None):
         if self.skip_existing:
