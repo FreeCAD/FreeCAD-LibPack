@@ -752,7 +752,7 @@ class Compiler:
                 return
         python = self.python_exe()
         qtpaths = "--qtpaths=" + os.path.join(self.install_dir, "bin", "qtpaths6") + to_exe()
-        clang = "CLANG_INSTALL_DIR=" + os.path.join(self.install_dir, "lib", "clang")
+        clang = "CLANG_INSTALL_DIR=" + self.install_dir
         vulkan = "VULKAN_SDK=None"  # "VULKAN_SDK=" + os.path.join(self.install_dir, "Vulkan")
         parallel = "--parallel=16"
         # numpy = "--enable-numpy-support"
@@ -780,12 +780,11 @@ class Compiler:
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
             args = [clang, "&&", python, "setup.py", "install", qtpaths, ssl]
         try:
-            subprocess.run(args, capture_output=True, check=True)
+            self._run_streaming(args, "build_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to build Pyside and/or Shiboken")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def build_vtk(self, _=None):
