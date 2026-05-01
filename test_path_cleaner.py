@@ -1,7 +1,8 @@
-#!/bin/python3
-import os
-
+#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-FileNotice: Part of the FreeCAD project.
+
+import os
 
 import unittest
 from unittest.mock import MagicMock, patch, mock_open

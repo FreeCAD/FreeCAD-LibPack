@@ -1,6 +1,6 @@
-#!/bin/python3
-
+#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
+# SPDX-FileNotice: Part of the FreeCAD project.
 
 # Every package has its own compilation and installation idiosyncrasies, so we have to use a custom
 # build script for each one.
