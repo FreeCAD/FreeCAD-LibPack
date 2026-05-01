@@ -189,7 +189,7 @@ class Compiler:
             if platform.machine() == "ARM64":
                 base.append("-A ARM64")
             inc_path = self.install_dir.replace("\\", "/")
-            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64"
+            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64 /DNOMINMAX"
             if self.strict_mode:
                 # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against
                 # Qt. The same is true for /Zc:__cplusplus /std:c++20
@@ -1213,7 +1213,10 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "eigen3")):
                 print("  Not rebuilding Eigen3, it is already in the LibPack")
                 return
-        self._build_standard_cmake()
+        # These BLAS toolchains require a Fortran compiler, which is often not available. We don't
+        # actually NEED these, so just turn them off.
+        extra_args = ["-D EIGEN_BUILD_BLAS=OFF", "-D EIGEN_BUILD_LAPACK=OFF"]
+        self._build_standard_cmake(extra_args)
 
     def build_yamlcpp(self, _: None):
         if self.skip_existing:
