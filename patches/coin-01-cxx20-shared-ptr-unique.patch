@@ -1,0 +1,10 @@
+@@@ include/Inventor/SbByteBufferP.icc @@@
+@@ -747,16 +747,17 @@
+ ze_ && !
++(
+ PRIVATE(
+@@ -771,22 +771,31 @@
+ buffer.u
+-nique(
++se_count() == 1
+ )) %7B%0A   

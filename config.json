@@ -108,7 +108,9 @@
         {
             "name":"coin",
             "git-repo":"https://github.com/coin3d/coin",
-            "git-ref": "v4.0.8"
+            "git-ref": "v4.0.8",
+            "patches": ["patches/coin-01-cxx20-shared-ptr-unique.patch"],
+            "note": "That patch will not be needed in the next release of Coin, it's fixed upstream already"
         },
         {
             "name":"quarter",
