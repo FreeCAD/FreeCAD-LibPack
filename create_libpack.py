@@ -29,6 +29,7 @@ from contextlib import contextmanager
 import ctypes
 import json
 import os
+from pathlib import Path
 import platform
 import shutil
 import stat
@@ -51,10 +52,9 @@ except ImportError:
 
 import compile_all
 
-path_to_7zip = "C:\\Program Files\\7-Zip\\7z.exe"
-path_to_bison = "C:\\Program Files\\win-flex-bison\\win_bison.exe"
-devel_init_script_x64 = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat"
-devel_init_script_arm64 = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsarm64.bat"
+path_to_7zip = r"C:\Program Files\7-Zip\7z.exe"
+path_to_bison = r"C:\Program Files\win-flex-bison\win_bison.exe"
+vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 
 def remove_readonly(func, path, _) -> None:
@@ -159,7 +159,7 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
             args.extend(["--branch", ref])
         elif hash is None:
             args.extend(["--depth", "1"])
-        args.extend(["--recurse-submodules", url, name])
+        args.extend([url, name])
         subprocess.run(args, capture_output=True, check=True)
 
         if hash is not None:
@@ -167,6 +167,12 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
             os.chdir(name)
             subprocess.run(["git", "checkout", hash], capture_output=True, check=True)
             os.chdir("..")
+
+        os.chdir(name)
+        subprocess.run(
+            ["git", "submodule", "update", "--init", "--recursive"], capture_output=True, check=True
+        )
+        os.chdir("..")
 
     except subprocess.CalledProcessError as e:
         print(f"ERROR: failed to clone git repo {url} at ref {ref}")
@@ -331,10 +337,25 @@ if __name__ == "__main__":
             skip_existing=args["no_skip_existing_build"],
             mode=mode,
         )
+        vs_install_path = subprocess.check_output(
+            [
+                vswhere,
+                "-latest",
+                "-products",
+                "*",
+                "-requires",
+                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",  # Misleading, works on ARM too
+                "-property",
+                "installationPath",
+            ],
+            text=True,
+        ).strip()
+
+        base_path = Path(vs_install_path) / "VC" / "Auxiliary" / "Build"
         if platform.machine() == "ARM64":
-            compiler.init_script = devel_init_script_arm64
+            compiler.init_script = str(base_path / "vcvarsarm64.bat")
         else:
-            compiler.init_script = devel_init_script_x64
+            compiler.init_script = str(base_path / "vcvars64.bat")
         compiler.compile_all()
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files
