@@ -348,6 +348,16 @@ if __name__ == "__main__":
         ),
         default="latest",
     )
+    parser.add_argument(
+        "--vcvars-ver",
+        help=(
+            "Optional MSVC toolset version to select inside the chosen Visual Studio "
+            "install, passed to vcvars64.bat as -vcvars_ver=VALUE. Use this to build "
+            "with the v143 (VS 2022) toolset from a VS 2026 installation, for example "
+            "--vcvars-ver=14.4."
+        ),
+        default="",
+    )
     parser.add_argument("path-to-final-libpack-dir", nargs="?", default="./")
     args = vars(parser.parse_args())
 
@@ -392,9 +402,13 @@ if __name__ == "__main__":
 
         base_path = Path(vs_install_path) / "VC" / "Auxiliary" / "Build"
         if platform.machine() == "ARM64":
-            compiler.init_script = str(base_path / "vcvarsarm64.bat")
+            init_bat = str(base_path / "vcvarsarm64.bat")
         else:
-            compiler.init_script = str(base_path / "vcvars64.bat")
+            init_bat = str(base_path / "vcvars64.bat")
+        if args["vcvars_ver"]:
+            compiler.init_script = [init_bat, f"-vcvars_ver={args['vcvars_ver']}"]
+        else:
+            compiler.init_script = [init_bat]
         compiler.compile_all()
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files

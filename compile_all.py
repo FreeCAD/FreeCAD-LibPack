@@ -241,7 +241,7 @@ class Compiler:
             try:
                 subprocess.run(
                     [
-                        self.init_script,
+                        *self.init_script,
                         "&",
                         "PCbuild\\build.bat",
                         "-p",
@@ -455,7 +455,7 @@ class Compiler:
 
         submodules = ["qtbase", "qtsvg", "qtdeclarative", "qttools", "qtremoteobjects"]
         init_command = [
-            self.init_script,
+            *self.init_script,
             "&",
             os.path.join(old_cwd, "configure.bat"),
             "-opensource",
@@ -556,7 +556,7 @@ class Compiler:
             )
 
     def _run_cmake(self, args):
-        cmake_setup_options = [self.init_script, "&", "cmake"]
+        cmake_setup_options = [*self.init_script, "&", "cmake"]
         cmake_setup_options.extend(args)
         try:
             self._run_streaming(cmake_setup_options, "build_log.txt")
@@ -689,7 +689,7 @@ class Compiler:
                 print("  Not rebuilding bzip2, it is already in the LibPack")
                 return
         if sys.platform.startswith("win32"):
-            args = [self.init_script, "&", "nmake", "/f", "makefile.msc"]
+            args = [*self.init_script, "&", "nmake", "/f", "makefile.msc"]
             try:
                 subprocess.run(args, check=True, capture_output=True)
                 shutil.copyfile("libbz2.lib", os.path.join(self.install_dir, "lib", "libbz2.lib"))
@@ -764,7 +764,7 @@ class Compiler:
         if sys.platform.startswith("win32"):
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
             args = [
-                self.init_script,
+                *self.init_script,
                 "&",
                 python,
                 "setup.py",
@@ -876,12 +876,12 @@ class Compiler:
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
+                args = [*self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
                 subprocess.run(args, check=True, capture_output=True)
                 args = [
-                    self.init_script,
+                    *self.init_script,
                     "&",
                     "nmake",
                     "/f",
@@ -918,12 +918,12 @@ class Compiler:
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
+                args = [*self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
                 subprocess.run(args, check=True, capture_output=True)
                 args = [
-                    self.init_script,
+                    *self.init_script,
                     "&",
                     "nmake",
                     "/f",
@@ -1136,7 +1136,7 @@ class Compiler:
             # Find the most recent available WindowsTargetPlatformVersion:
             target = Compiler._get_latest_windows_target_platform_version()
             args = [
-                self.init_script,
+                *self.init_script,
                 "&",
                 "msbuild",
                 f"/p:Configuration={str(self.mode).lower()}",
