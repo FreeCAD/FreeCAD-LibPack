@@ -145,7 +145,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
             ]
         }
         create_libpack.fetch_remote_data(test_config)
-        mock_clone.assert_called_once_with("test1", "test1_repo")
+        mock_clone.assert_called_once_with("test1", "test1_repo", None, None)
 
     @patch("create_libpack.clone")
     def test_non_git_entries_are_ignored(self, mock_clone: MagicMock):
@@ -166,7 +166,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         call_data: list = run_mock.call_args_list[0][0][0]
         self.assertIn("https://some.url", call_data)
         self.assertIn("some_git_ref", call_data)
-        self.assertEquals(call_data[-1], "name")
+        self.assertEqual(call_data[-1], "name")
 
     @patch("os.chdir")
     @patch("subprocess.run")
