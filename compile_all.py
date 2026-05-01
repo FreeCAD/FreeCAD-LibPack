@@ -529,7 +529,7 @@ class Compiler:
         os.mkdir(build_dir)
         os.chdir(build_dir)
 
-    def _run_streaming(self, args, log_filename: str = "build_log.txt"):
+    def _run_streaming(self, args, log_filename: str = "build_log.txt", env=None):
         """Run a subprocess and stream its combined stdout and stderr to log_filename one
         line at a time. The log file is opened in append mode and line-buffered so an
         external watcher can tail it in real time. The output of this invocation is also
@@ -544,6 +544,7 @@ class Compiler:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=env,
             )
             for line in proc.stdout:
                 logf.write(line)
@@ -752,20 +753,18 @@ class Compiler:
                 return
         python = self.python_exe()
         qtpaths = "--qtpaths=" + os.path.join(self.install_dir, "bin", "qtpaths6") + to_exe()
-        clang = "CLANG_INSTALL_DIR=" + self.install_dir
-        vulkan = "VULKAN_SDK=None"  # "VULKAN_SDK=" + os.path.join(self.install_dir, "Vulkan")
         parallel = "--parallel=16"
-        # numpy = "--enable-numpy-support"
+        # Pass environment variables through Python's subprocess env rather than cmd's
+        # "set NAME=VALUE & ..." pattern. The cmd form preserves the whitespace before
+        # the next "&" separator inside the env value, which historically left a trailing
+        # space in CLANG_INSTALL_DIR and broke shiboken's clang resource lookup.
+        env = os.environ.copy()
+        env["CLANG_INSTALL_DIR"] = self.install_dir
+        env["VULKAN_SDK"] = "None"
         if sys.platform.startswith("win32"):
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
             args = [
                 self.init_script,
-                "&",
-                "set",
-                clang,
-                "&",
-                "set",
-                vulkan,
                 "&",
                 python,
                 "setup.py",
@@ -778,9 +777,9 @@ class Compiler:
                 args.append("--debug")
         else:
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
-            args = [clang, "&&", python, "setup.py", "install", qtpaths, ssl]
+            args = [python, "setup.py", "install", qtpaths, ssl]
         try:
-            self._run_streaming(args, "build_log.txt")
+            self._run_streaming(args, "build_log.txt", env=env)
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to build Pyside and/or Shiboken")
             if e.output:
