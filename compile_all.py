@@ -9,17 +9,14 @@ from diff_match_patch import diff_match_patch
 from typing import Dict, List, Optional, Tuple
 
 from enum import Enum
-import io
 import os
 import pathlib
 import platform
 import re
-import requests
 import shutil
 import subprocess
 import stat
 import sys
-import zipfile
 
 
 class BuildMode(Enum):
@@ -393,24 +390,9 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PIL")):
                 print("  Not re-installing Python requirements, they are already in the LibPack")
                 return
-        if platform.machine() == "ARM64" and sys.platform == "win32":
-            print("Detected Windows-on-ARM, downloading fallback wheels...")
-            fallback_wheels = self._get_windows_on_arm_fallback_wheels()
-        else:
-            fallback_wheels = None
         print("  Installing the following requirements (and their dependencies) using pip:")
-        final_requirements = []
         for req in requirements:
-            fallback = False
-            if fallback_wheels is not None:
-                new_req = self._get_fallback_wheel(req, fallback_wheels)
-                if new_req is not None:
-                    fallback = True
-                    final_requirements.append(new_req)
-                    print("    " + req + " (using ARM64 fallback wheel)")
-            if not fallback:
-                final_requirements.append(req)
-                print("    " + req)
+            print("    " + req)
         path_to_python = self.python_exe()
         call_args = [
             path_to_python,
@@ -421,7 +403,7 @@ class Compiler:
             "--ignore-installed",
             "--no-warn-script-location",
         ]
-        call_args.extend(final_requirements)
+        call_args.extend(requirements)
         try:
             subprocess.run(
                 call_args,
@@ -434,53 +416,6 @@ class Compiler:
             if e.stderr:
                 print(e.stderr.decode("utf-8"))
             exit(1)
-
-    def _get_windows_on_arm_fallback_wheels(self) -> str:
-        """As of May 2025 SciPy does not yet provide a WOA wheel, so we have to use an "unofficial" build from
-        https://github.com/cgohlke/win_arm64-wheels"""
-        wheel_dir = os.path.join(self.base_dir, "woa-fallback-wheel")
-        if os.path.exists(wheel_dir):
-            if self.skip_existing:
-                print("Already downloaded Windows-on-ARM fallback wheels")
-                return wheel_dir
-            else:
-                shutil.rmtree(wheel_dir)
-        os.makedirs(wheel_dir)
-        zip_url = "https://github.com/cgohlke/win_arm64-wheels/releases/download/v2025.7.7/2025.7.7-experimental-cp313-win_arm64.whl.zip"
-        response = requests.get(zip_url)
-        if response.status_code != 200:
-            print("Failed to download Windows-on-ARM fallback Python requirements")
-            exit(1)
-
-        with zipfile.ZipFile(io.BytesIO(response.content)) as zip_data:
-            for content_item in zip_data.infolist():
-                if content_item.is_dir():
-                    continue
-                filename = str(os.path.basename(content_item.filename))
-                if not filename:
-                    continue
-                target_path = os.path.join(wheel_dir, filename)
-                with open(target_path, "wb") as target_file:
-                    target_file.write(zip_data.read(content_item))
-            zip_data.extractall(path=wheel_dir)
-        return wheel_dir
-
-    @staticmethod
-    def _get_fallback_wheel(req: str, fallback_wheels: str) -> Optional[str]:
-        """See if a given requirement has a wheel in our fallback directory, and if so return
-        it. If not, just return the original requirement"""
-        package_name, _, version = req.partition("==")  # For now, completely ignore the version
-        filename = next(
-            (
-                f
-                for f in os.listdir(fallback_wheels)
-                if f.startswith(package_name) and f.endswith(".whl")
-            ),
-            None,
-        )
-        if filename is None:
-            return None
-        return os.path.join(fallback_wheels, filename)
 
     def _build_qt_from_source(self, options: dict):
         """Actually build Qt from source."""

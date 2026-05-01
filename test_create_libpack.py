@@ -158,22 +158,22 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         create_libpack.fetch_remote_data(test_config)
         mock_clone.assert_not_called()
 
+    @patch("os.chdir")
     @patch("subprocess.run")
-    def test_clone_calls_git_with_ref(self, run_mock: MagicMock):
+    def test_clone_calls_git_with_ref(self, run_mock: MagicMock, _):
         """When given a repo and a ref, git clone is set up appropriately"""
         create_libpack.clone("name", "https://some.url", "some_git_ref")
-        run_mock.assert_called_once()
-        call_data: list = run_mock.call_args[0][0]
+        call_data: list = run_mock.call_args_list[0][0][0]
         self.assertIn("https://some.url", call_data)
         self.assertIn("some_git_ref", call_data)
         self.assertEquals(call_data[-1], "name")
 
+    @patch("os.chdir")
     @patch("subprocess.run")
-    def test_clone_calls_git_without_ref(self, run_mock: MagicMock):
+    def test_clone_calls_git_without_ref(self, run_mock: MagicMock, _):
         """When given a repo and a ref, git clone is set up appropriately"""
         create_libpack.clone("test", "https://some.url")
-        run_mock.assert_called_once()
-        call_data = run_mock.call_args[0][0]
+        call_data = run_mock.call_args_list[0][0][0]
         self.assertNotIn(None, call_data)
         self.assertNotIn("--branch", call_data)
 
