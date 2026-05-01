@@ -1079,7 +1079,11 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "medfile.h")):
                 print("  Not rebuilding medfile, it is already in the LibPack")
                 return
-        extra_args = ["-D MEDFILE_USE_UNICODE=On", "-D MEDFILE_BUILD_TESTS=OFF"]
+        extra_args = [
+            "-D MEDFILE_USE_UNICODE=On",
+            "-D MEDFILE_BUILD_TESTS=OFF",
+            "-D CMAKE_Fortran_COMPILER=NOTFOUND",
+        ]
         old_strict_mode = self.strict_mode
         self.strict_mode = False
         self._build_standard_cmake(extra_args)
