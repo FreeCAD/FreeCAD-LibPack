@@ -56,29 +56,19 @@ def remove_local_path_from_cmake_files(base_path: str) -> None:
 
 
 def remove_local_path_from_cmake_file(base_path: str, file_to_clean: str) -> None:
-    """Modify a cMake file to remove base_path and replace it with ${CMAKE_CURRENT_SOURCE_DIR} -- WARNING: effectively
+    """Modify a cMake file to remove base_path and replace it with ${CMAKE_CURRENT_SOURCE_DIR}. WARNING: effectively
     edits the file in-place, no backup is made."""
     depth_string = create_depth_string(base_path, file_to_clean)
     with open(file_to_clean, "r", encoding="UTF-8") as f:
         contents = f.read()
 
-    if base_path.endswith(os.path.sep):
-        base_path = base_path[: -len(os.path.sep)]
+    base_path_native = base_path.rstrip("\\/")
+    cmake_replacement = "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string[:-1]
+    contents = contents.replace(base_path_native, cmake_replacement)
+    cmake_base_path = base_path_native.replace("\\", "/")
+    if cmake_base_path != base_path_native:
+        contents = contents.replace(cmake_base_path, cmake_replacement)
 
-    # First, just replace the exact string we were given
-    contents = contents.replace(
-        base_path, "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string[:-1]
-    )  # Skip the final /
-
-    # Most occurrences should NOT have been the exact string if we are on Windows, since cMake paths should always
-    # use forward slashes, so make sure to do that replacement as well
-    if os.pathsep != "/":
-        cmake_base_path = base_path.replace(
-            os.path.sep, "/"
-        )  # cMake paths should always use forward slash
-        contents = contents.replace(
-            cmake_base_path, "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string[:-1]
-        )  # Skip /
     with open(file_to_clean, "w", encoding="utf-8") as f:
         f.write(contents)
 
@@ -88,18 +78,19 @@ def create_depth_string(base_path: str, file_to_clean: str) -> str:
     to result in a path that resolves to base_path. Returns a string containing just some number of occurrences of
     "../" e.g. "../../../" to move up three levels from file_to_clean's containing folder."""
 
-    file_to_clean = os.path.normpath(file_to_clean)
-    if not file_to_clean.startswith(base_path):
+    file_norm = file_to_clean.replace("\\", "/")
+    while "//" in file_norm:
+        file_norm = file_norm.replace("//", "/")
+    base_norm = base_path.replace("\\", "/").rstrip("/")
+
+    if not file_norm.startswith(base_norm):
         raise RuntimeError(f"{file_to_clean} does not appear to be in {base_path}")
 
-    if base_path.endswith(os.path.sep):
-        base_path = base_path[: -len(os.path.sep)]
-
-    containing_directory = os.path.dirname(file_to_clean)
-    directories_to_file = len(containing_directory.split(os.path.sep))
-    directories_in_base = len(base_path.split(os.path.sep))
+    containing_directory = file_norm.rsplit("/", 1)[0] if "/" in file_norm else ""
+    directories_to_file = len(containing_directory.split("/"))
+    directories_in_base = len(base_norm.split("/"))
     num_steps_up = directories_to_file - directories_in_base
-    return "../" * num_steps_up  # For use in cMake, so always a forward slash here
+    return "../" * num_steps_up
 
 
 def correct_opencascade_freetype_ref(base_path: str):
