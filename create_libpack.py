@@ -503,5 +503,13 @@ if __name__ == "__main__":
         # path_cleaner.delete_qtquick(base_path)
         path_cleaner.delete_llvm_executables(base_path)
         path_cleaner.delete_clang_executables(base_path)
+        path_cleaner.delete_unused_static_libs(base_path)
+        path_cleaner.delete_lldb(base_path)
+        path_cleaner.delete_bundled_cmake(base_path)
+        path_cleaner.delete_llvm_internal_headers(base_path)
+        path_cleaner.delete_documentation(base_path)
+        path_cleaner.delete_occt_sample_data(base_path)
+        path_cleaner.delete_python_test_suites(base_path)
+        path_cleaner.delete_pdb_files(base_path)
 
         write_manifest(config_dict, mode)
