@@ -9,17 +9,14 @@ from diff_match_patch import diff_match_patch
 from typing import Dict, List, Optional, Tuple
 
 from enum import Enum
-import io
 import os
 import pathlib
 import platform
 import re
-import requests
 import shutil
 import subprocess
 import stat
 import sys
-import zipfile
 
 
 class BuildMode(Enum):
@@ -128,6 +125,12 @@ class Compiler:
         self.skip_existing = skip_existing
         self.install_dir = libpack_dir(config, mode)
         self.init_script = None
+        # Full MSVC tools version (for example "14.44.35207") to pass to MSBuild as
+        # /p:VCToolsVersion. Required when the requested PlatformToolset (v143) lacks
+        # a matching Microsoft.VCToolsVersion.v<N>.default.props file, in which case
+        # MSBuild falls back to the newest installed compiler regardless of what the
+        # environment or -vcvars_ver requested.
+        self.msvc_tools_version = None
         self.mode = mode
         self.strict_mode = True
 
@@ -181,9 +184,6 @@ class Compiler:
             f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + to_exe(),
             f"-D ZLIB_DIR={self.install_dir}/lib/cmake/",
-            f"-D ZLIB_INCLUDE_DIR={self.install_dir}/include",
-            f"-D ZLIB_LIBRARY_RELEASE={self.install_dir}/lib/zlib" + to_static(),
-            f"-D ZLIB_LIBRARY_DEBUG={self.install_dir}/lib/zlibd" + to_static(),
             "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",
             # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
@@ -195,7 +195,7 @@ class Compiler:
             if platform.machine() == "ARM64":
                 base.append("-A ARM64")
             inc_path = self.install_dir.replace("\\", "/")
-            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64"
+            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64 /DNOMINMAX"
             if self.strict_mode:
                 # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against
                 # Qt. The same is true for /Zc:__cplusplus /std:c++20
@@ -235,6 +235,25 @@ class Compiler:
             return os.path.join(self.install_dir, "bin", "python") + to_exe()
         return os.path.join(self.install_dir, "bin", "python_d") + to_exe()
 
+    def _python_build_env(self):
+        """Environment for the host Python that PCbuild\\build.bat -e launches to fetch
+        external sources. Some Python installs on Windows ship without a usable CA bundle,
+        which makes get_external.py fail with SSL: CERTIFICATE_VERIFY_FAILED when
+        downloading from GitHub. Point SSL_CERT_FILE at the certifi bundle that ships with
+        requests so the host Python can verify TLS. Honor any value the caller already
+        set."""
+        env = os.environ.copy()
+        if "SSL_CERT_FILE" not in env:
+            try:
+                import certifi
+
+                ca_bundle = certifi.where()
+            except ImportError:
+                ca_bundle = None
+            if ca_bundle and os.path.exists(ca_bundle):
+                env["SSL_CERT_FILE"] = ca_bundle
+        return env
+
     def build_python(self, args=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "bin", "DLLs")):
@@ -244,10 +263,24 @@ class Compiler:
             expected_exe_path = self.python_exe()
             arch = "x64" if platform.machine() == "AMD64" else "ARM64"
             path = "amd64" if platform.machine() == "AMD64" else "arm64"
+            env = self._python_build_env()
+            # When MSBuild's PlatformToolset selection chain cannot resolve a default
+            # VCToolsVersion for v143 (the case on Visual Studio 2026 installs that
+            # ship the v143 toolset but not Microsoft.VCToolsVersion.v143.default.props),
+            # MSBuild silently picks the newest installed compiler and then fails the
+            # toolset compatibility check. Force the version via PCbuild\\msbuild.rsp,
+            # which build.bat documents as the supported way to inject extra MSBuild
+            # flags. Command-line /p: cannot be used here because cmd's batch parameter
+            # parser splits on the '=' before build.bat passes %1..%9 through.
+            rsp_path = pathlib.Path("PCbuild") / "msbuild.rsp"
+            if self.msvc_tools_version:
+                rsp_path.write_text(
+                    f"/p:VCToolsVersion={self.msvc_tools_version}\n", encoding="utf-8"
+                )
             try:
-                subprocess.run(
+                self._run_streaming(
                     [
-                        self.init_script,
+                        *self.init_script,
                         "&",
                         "PCbuild\\build.bat",
                         "-p",
@@ -256,14 +289,13 @@ class Compiler:
                         str(self.mode),
                         "-e",
                     ],
-                    check=True,
-                    capture_output=True,
+                    "build_log.txt",
+                    env=env,
                 )
             except subprocess.CalledProcessError as e:
                 print("Python build failed")
-                print(e.stdout.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(e.returncode)
             except FileNotFoundError as e:
                 print(f"Could not find file: {e}")
@@ -342,7 +374,7 @@ class Compiler:
                         if os.path.exists(target):
                             os.unlink(target)
                         file.rename(target)
-            pyconfig = os.path.join("PCBuild", path.lower(), "pyconfig.h")
+            pyconfig = os.path.join("PC", "pyconfig.h")
             target = os.path.join(inc_dir, "pyconfig.h")
             if not os.path.exists(pyconfig):
                 print("ERROR: Could not locate pyconfig.h, cannot complete installation of Python")
@@ -376,19 +408,14 @@ class Compiler:
         print("  Installing the latest pip")
         path_to_python = self.python_exe()
         try:
-            subprocess.run(
-                [path_to_python, "-m", "ensurepip", "--upgrade"], capture_output=True, check=True
-            )
-            subprocess.run(
-                [path_to_python, "-m", "pip", "install", "--upgrade", "pip"],
-                capture_output=True,
-                check=True,
+            self._run_streaming([path_to_python, "-m", "ensurepip", "--upgrade"], "pip_log.txt")
+            self._run_streaming(
+                [path_to_python, "-m", "pip", "install", "--upgrade", "pip"], "pip_log.txt"
             )
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to run LibPack's Python executable")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def _install_python_requirements(self, requirements):
@@ -396,24 +423,9 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PIL")):
                 print("  Not re-installing Python requirements, they are already in the LibPack")
                 return
-        if platform.machine() == "ARM64" and sys.platform == "win32":
-            print("Detected Windows-on-ARM, downloading fallback wheels...")
-            fallback_wheels = self._get_windows_on_arm_fallback_wheels()
-        else:
-            fallback_wheels = None
         print("  Installing the following requirements (and their dependencies) using pip:")
-        final_requirements = []
         for req in requirements:
-            fallback = False
-            if fallback_wheels is not None:
-                new_req = self._get_fallback_wheel(req, fallback_wheels)
-                if new_req is not None:
-                    fallback = True
-                    final_requirements.append(new_req)
-                    print("    " + req + " (using ARM64 fallback wheel)")
-            if not fallback:
-                final_requirements.append(req)
-                print("    " + req)
+            print("    " + req)
         path_to_python = self.python_exe()
         call_args = [
             path_to_python,
@@ -424,69 +436,18 @@ class Compiler:
             "--ignore-installed",
             "--no-warn-script-location",
         ]
-        call_args.extend(final_requirements)
+        call_args.extend(requirements)
         try:
-            subprocess.run(
-                call_args,
-                check=True,
-                capture_output=True,
-            )
+            self._run_streaming(call_args, "pip_log.txt")
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to pip install requirements")
-            print(e.output.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
-    def _get_windows_on_arm_fallback_wheels(self) -> str:
-        """As of May 2025 SciPy does not yet provide a WOA wheel, so we have to use an "unofficial" build from
-        https://github.com/cgohlke/win_arm64-wheels"""
-        wheel_dir = os.path.join(self.base_dir, "woa-fallback-wheel")
-        if os.path.exists(wheel_dir):
-            if self.skip_existing:
-                print("Already downloaded Windows-on-ARM fallback wheels")
-                return wheel_dir
-            else:
-                shutil.rmtree(wheel_dir)
-        os.makedirs(wheel_dir)
-        zip_url = "https://github.com/cgohlke/win_arm64-wheels/releases/download/v2025.7.7/2025.7.7-experimental-cp313-win_arm64.whl.zip"
-        response = requests.get(zip_url)
-        if response.status_code != 200:
-            print("Failed to download Windows-on-ARM fallback Python requirements")
-            exit(1)
-
-        with zipfile.ZipFile(io.BytesIO(response.content)) as zip_data:
-            for content_item in zip_data.infolist():
-                if content_item.is_dir():
-                    continue
-                filename = str(os.path.basename(content_item.filename))
-                if not filename:
-                    continue
-                target_path = os.path.join(wheel_dir, filename)
-                with open(target_path, "wb") as target_file:
-                    target_file.write(zip_data.read(content_item))
-            zip_data.extractall(path=wheel_dir)
-        return wheel_dir
-
-    @staticmethod
-    def _get_fallback_wheel(req: str, fallback_wheels: str) -> Optional[str]:
-        """See if a given requirement has a wheel in our fallback directory, and if so return
-        it. If not, just return the original requirement"""
-        package_name, _, version = req.partition("==")  # For now, completely ignore the version
-        filename = next(
-            (
-                f
-                for f in os.listdir(fallback_wheels)
-                if f.startswith(package_name) and f.endswith(".whl")
-            ),
-            None,
-        )
-        if filename is None:
-            return None
-        return os.path.join(fallback_wheels, filename)
-
-    def _build_qt_from_source(self, options: dict):
-        """Actually build Qt from source."""
+    def build_qt(self, options: dict):
+        """Build Qt from source. Always builds qtbase, qtsvg, qtdeclarative, and qttools
+        against the LibPack's own zlib and libpng."""
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
                 print("Not building Qt from source, it already seems to be in the LibPack")
@@ -513,16 +474,16 @@ class Compiler:
 
         # Qt needs access to zlib and libpng, and assumes they are installed at the system level. We want to
         # use the LibPack versions. The easiest thing to do is just copy the DLLs:
-        files = ["zlib.dll", "zlib1.dll", "libpng16.dll"]
+        files = ["z.dll", "libpng16.dll"]
         source = os.path.join(self.install_dir, "bin")
         destination = os.path.join(build_dir, "qtbase", "bin")
         os.makedirs(destination, exist_ok=True)
         for f in files:
             shutil.copy(os.path.join(source, f), destination)
 
-        submodules = ["qtbase", "qtsvg", "qtdeclarative", "qttools"]
+        submodules = ["qtbase", "qtsvg", "qtdeclarative", "qttools", "qtremoteobjects"]
         init_command = [
-            self.init_script,
+            *self.init_script,
             "&",
             os.path.join(old_cwd, "configure.bat"),
             "-opensource",
@@ -536,44 +497,17 @@ class Compiler:
             "desktop",
         ]
         try:
-            process = subprocess.run(init_command, check=True, capture_output=True)
-            with open("configure_log.txt", "a", encoding="utf-8") as f:
-                f.write(process.stdout.decode("utf-8"))
+            self._run_streaming(init_command, "configure_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: Qt configure failed!")
             print(f"Command: {' '.join(init_command)}")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
         self._cmake_build()
         self._cmake_install()
         os.chdir(old_cwd)
-
-    def build_qt(self, options: dict):
-        """Doesn't really "build" Qt, just copies the pre-compiled libraries from the configured path,
-        unless running in Windows-on-ARM, in which case we *have* to build Qt from source in order to get
-        the OpenGL module"""
-        if (
-            "install-directory" not in options
-            or not os.path.exists(options["install-directory"])
-            or platform.machine() == "ARM64"
-        ):
-            self._build_qt_from_source(options)
-            return
-        qt_dir = options["install-directory"]
-        if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "metatypes")):
-                print(
-                    "  Not re-copying, instead just using existing Qt in the LibPack installation path"
-                )
-                return
-        if not os.path.exists(qt_dir):
-            print(f"Error: specified Qt installation path does not exist ({qt_dir})")
-            exit(1)
-        print("  (Note that Qt isn't really 'built,' it is just copied from a local installation)")
-        shutil.copytree(qt_dir, self.install_dir, dirs_exist_ok=True)
 
     def build_boost(self, _=None):
         if self.skip_existing:
@@ -620,19 +554,42 @@ class Compiler:
         os.mkdir(build_dir)
         os.chdir(build_dir)
 
+    def _run_streaming(self, args, log_filename: str = "build_log.txt", env=None):
+        """Run a subprocess and stream its combined stdout and stderr to log_filename one
+        line at a time. The log file is opened in append mode and line-buffered so an
+        external watcher can tail it in real time. The output of this invocation is also
+        retained in memory so that, on a non-zero exit, it can be attached to the raised
+        CalledProcessError exactly as subprocess.run would have done."""
+        captured_lines: List[str] = []
+        with open(log_filename, "a", encoding="utf-8", buffering=1) as logf:
+            proc = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+            for line in proc.stdout:
+                logf.write(line)
+                captured_lines.append(line)
+            return_code = proc.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(
+                return_code, args, output="".join(captured_lines).encode("utf-8")
+            )
+
     def _run_cmake(self, args):
-        cmake_setup_options = [self.init_script, "&", "cmake"]
+        cmake_setup_options = [*self.init_script, "&", "cmake"]
         cmake_setup_options.extend(args)
         try:
-            process = subprocess.run(cmake_setup_options, check=True, capture_output=True)
-            with open("build_log.txt", "a", encoding="utf-8") as f:
-                f.write(process.stdout.decode("utf-8"))
+            self._run_streaming(cmake_setup_options, "build_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: cMake failed!")
             print(f"Command: {' '.join(cmake_setup_options)}")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
     def _cmake_configure(self, extra_args: List[str] = None):
@@ -664,26 +621,22 @@ class Compiler:
         path_to_python = self.python_exe()
         package_name = requirement.split("==")[0]
         try:
-            # Get rid of any version that's already there.
-            subprocess.run(
+            self._run_streaming(
                 [path_to_python, "-m", "pip", "uninstall", "--yes", package_name],
-                check=True,
-                capture_output=True,
+                "pip_log.txt",
             )
         except subprocess.CalledProcessError as e:
             print(f"{package_name} was not uninstalled... continuing")
             pass
         try:
-            subprocess.run(
+            self._run_streaming(
                 [path_to_python, "-m", "pip", "install", "--ignore-installed", requirement],
-                check=True,
-                capture_output=True,
+                "pip_log.txt",
             )
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to pip install {requirement}")
-            print(e.output.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def _build_with_pip(self, options: dict):
@@ -737,8 +690,10 @@ class Compiler:
         self._build_standard_cmake()
         # Qt really wants to find these under an alternate name, so just make copies...
         name_mapping = [
-            (os.path.join("lib", "zlib.lib"), os.path.join("lib", "zlib1.lib")),
-            (os.path.join("bin", "zlib.dll"), os.path.join("bin", "zlib1.dll")),
+            (os.path.join("lib", "z.lib"), os.path.join("lib", "zlib.lib")),
+            (os.path.join("bin", "z.dll"), os.path.join("bin", "zlib.dll")),
+            (os.path.join("lib", "z.lib"), os.path.join("lib", "zlib1.lib")),
+            (os.path.join("bin", "z.dll"), os.path.join("bin", "zlib1.dll")),
         ]
         for name1, name2 in name_mapping:
             full_name1 = os.path.join(self.install_dir, name1)
@@ -755,9 +710,9 @@ class Compiler:
                 print("  Not rebuilding bzip2, it is already in the LibPack")
                 return
         if sys.platform.startswith("win32"):
-            args = [self.init_script, "&", "nmake", "/f", "makefile.msc"]
+            args = [*self.init_script, "&", "nmake", "/f", "makefile.msc"]
             try:
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 shutil.copyfile("libbz2.lib", os.path.join(self.install_dir, "lib", "libbz2.lib"))
                 shutil.copyfile("bzlib.h", os.path.join(self.install_dir, "include", "bzlib.h"))
                 shutil.copyfile(
@@ -765,9 +720,8 @@ class Compiler:
                 )
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build bzip2 using nmake")
-                print(e.output.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
         else:
             raise NotImplemented("Non-Windows compilation of bzip2 is not implemented yet")
@@ -819,20 +773,18 @@ class Compiler:
                 return
         python = self.python_exe()
         qtpaths = "--qtpaths=" + os.path.join(self.install_dir, "bin", "qtpaths6") + to_exe()
-        clang = "CLANG_INSTALL_DIR=" + os.path.join(self.install_dir, "lib", "clang")
-        vulkan = "VULKAN_SDK=None"  # "VULKAN_SDK=" + os.path.join(self.install_dir, "Vulkan")
         parallel = "--parallel=16"
-        # numpy = "--enable-numpy-support"
+        # Pass environment variables through Python's subprocess env rather than cmd's
+        # "set NAME=VALUE & ..." pattern. The cmd form preserves the whitespace before
+        # the next "&" separator inside the env value, which historically left a trailing
+        # space in CLANG_INSTALL_DIR and broke shiboken's clang resource lookup.
+        env = os.environ.copy()
+        env["CLANG_INSTALL_DIR"] = self.install_dir
+        env["VULKAN_SDK"] = "None"
         if sys.platform.startswith("win32"):
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
             args = [
-                self.init_script,
-                "&",
-                "set",
-                clang,
-                "&",
-                "set",
-                vulkan,
+                *self.init_script,
                 "&",
                 python,
                 "setup.py",
@@ -845,14 +797,13 @@ class Compiler:
                 args.append("--debug")
         else:
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
-            args = [clang, "&&", python, "setup.py", "install", qtpaths, ssl]
+            args = [python, "setup.py", "install", qtpaths, ssl]
         try:
-            subprocess.run(args, capture_output=True, check=True)
+            self._run_streaming(args, "build_log.txt", env=env)
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to build Pyside and/or Shiboken")
-            print(e.stdout.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def build_vtk(self, _=None):
@@ -886,7 +837,12 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "harfbuzz")):
                 print("  Not rebuilding harfbuzz, it is already in the LibPack")
                 return
-        self._build_standard_cmake()
+        # The experimental harfbuzz-gpu library was introduced in HarfBuzz 14.x and fails
+        # to link as a shared library on Windows because it references private symbols
+        # (_hb_NullPool, _hb_CrapPool) that the main harfbuzz DLL does not export.
+        # Nothing in the LibPack consumes harfbuzz-gpu, so it is disabled.
+        extra_args = ["-D HB_BUILD_GPU=OFF"]
+        self._build_standard_cmake(extra_args)
 
     def build_libpng(self, _=None):
         if self.skip_existing:
@@ -940,12 +896,12 @@ class Compiler:
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
+                args = [*self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 args = [
-                    self.init_script,
+                    *self.init_script,
                     "&",
                     "nmake",
                     "/f",
@@ -955,7 +911,7 @@ class Compiler:
                 ]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 if self.mode == BuildMode.RELEASE:
                     self.force_copy(["bin", "tclsh86t.exe"], ["bin", "tclsh.exe"])
                     self.force_copy(["bin", "tcl86t.dll"], ["bin", "tcl86.dll"])
@@ -966,9 +922,8 @@ class Compiler:
                     self.force_copy(["lib", "tcl86tg.lib"], ["lib", "tcl86.lib"])
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tcl using nmake")
-                print(e.stdout.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
         else:
             raise NotImplemented("Non-Windows compilation of tcl is not implemented yet")
@@ -982,12 +937,12 @@ class Compiler:
         if sys.platform.startswith("win32"):
             try:
                 os.chdir("win")
-                args = [self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
+                args = [*self.init_script, "&", "nmake", "/f", "makefile.vc", "release"]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 args = [
-                    self.init_script,
+                    *self.init_script,
                     "&",
                     "nmake",
                     "/f",
@@ -997,7 +952,7 @@ class Compiler:
                 ]
                 if self.mode == BuildMode.DEBUG:
                     args.append("OPTS=symbols")
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
                 if self.mode == BuildMode.RELEASE:
                     self.force_copy(["bin", "wish86t.exe"], ["bin", "wish.exe"])
                     self.force_copy(["bin", "tk86t.dll"], ["bin", "tk86.dll"])
@@ -1008,9 +963,8 @@ class Compiler:
                     self.force_copy(["lib", "tk86tg.lib"], ["lib", "tk86.lib"])
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build tk using nmake")
-                print(e.output.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
         else:
             raise NotImplemented("Non-Windows compilation of tk is not implemented yet")
@@ -1042,14 +996,20 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "cmake", "OpenCASCADEConfig.cmake")):
                 print("  Not rebuilding OpenCASCADE, it is already in the LibPack")
                 return
+        install_dir = self.install_dir
+        vtk_include_dir = self._get_vtk_include_path()
+        if os.path.sep == "\\":
+            # OpenCASCADE's CMake is not tolerant of backslashes in paths, even on Windows
+            install_dir = install_dir.replace("\\", "/")
+            vtk_include_dir = vtk_include_dir.replace("\\", "/")
         extra_args = [
-            f"-D CMAKE_MODULE_PATH={self.install_dir}/lib/cmake;{self.install_dir}/share/cmake;{self.install_dir}"
-            f"-D TCL_DIR={self.install_dir}/include",
-            f"-D TK_DIR={self.install_dir}/include",
-            f"-D FREETYPE_DIR={self.install_dir}/lib/cmake",
-            f"-D VTK_DIR={self.install_dir}/lib/cmake",
-            f"-D 3RDPARTY_VTK_INCLUDE_DIRS={self._get_vtk_include_path()}",
-            f"-D EIGEN_DIR={self.install_dir}/share/eigen3/cmake",
+            f"-D CMAKE_MODULE_PATH={install_dir}/lib/cmake;{install_dir}/share/cmake;{install_dir}"
+            f"-D TCL_DIR={install_dir}/include",
+            f"-D TK_DIR={install_dir}/include",
+            f"-D FREETYPE_DIR={install_dir}/lib/cmake",
+            f"-D VTK_DIR={install_dir}/lib/cmake",
+            f"-D 3RDPARTY_VTK_INCLUDE_DIRS={vtk_include_dir}",
+            f"-D EIGEN_DIR={install_dir}/share/eigen3/cmake",
             "-D USE_VTK=On",
             "-D USE_FREETYPE=On",
             "-D USE_RAPIDJSON=On",
@@ -1119,11 +1079,16 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "hdf5.h")):
                 print("  Not rebuilding hdf5, it is already in the LibPack")
                 return
-        # HDF5 is VERY picky about how you specify the location of zlib: you must actually set the precise path to the
-        # library file itself. TODO future work to internally detect that library name and path and fill them here
+
+        # Per the recommendation of the HDF5 developers, let HDF5 build and link to its own internal
+        # copy of ZLib, since their CMake scripts are broken when trying to use a custom compiled
+        # version. See e.g. https://github.com/HDFGroup/hdf5/issues/5303
         extra_args = [
-            f"-D ZLIB_INCLUDE_DIR={self.install_dir}/include",
-            f"-D ZLIB_LIBRARY={self.install_dir}/lib/zlib.lib",
+            "-D HDF5_BUILD_EXAMPLES=OFF",
+            "-D HDF5_BUILD_TOOLS=OFF",
+            "-D HDF5_BUILD_UTILS=OFF",
+            "-D HDF5_ENABLE_Z_LIB_SUPPORT=ON",
+            "-D ZLIB_USE_EXTERNAL=ON",
         ]
         self._build_standard_cmake(extra_args)
 
@@ -1132,7 +1097,11 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "medfile.h")):
                 print("  Not rebuilding medfile, it is already in the LibPack")
                 return
-        extra_args = ["-D MEDFILE_USE_UNICODE=On", "-D MEDFILE_BUILD_TESTS=OFF"]
+        extra_args = [
+            "-D MEDFILE_USE_UNICODE=On",
+            "-D MEDFILE_BUILD_TESTS=OFF",
+            "-D CMAKE_Fortran_COMPILER=NOTFOUND",
+        ]
         old_strict_mode = self.strict_mode
         self.strict_mode = False
         self._build_standard_cmake(extra_args)
@@ -1160,12 +1129,11 @@ class Compiler:
         path_to_python = self.python_exe()
         args = [path_to_python, "setup.py", "install"]
         try:
-            subprocess.run(args, check=True, capture_output=True)
+            self._run_streaming(args, "build_log.txt")
         except subprocess.CalledProcessError as e:
             print("ERROR: Failed to build PyCXX using its custom build script")
-            print(e.output.decode("utf-8"))
-            if e.stderr:
-                print(e.stderr.decode("utf-8"))
+            if e.output:
+                print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
     def build_icu(self, _: None):
@@ -1185,7 +1153,7 @@ class Compiler:
             # Find the most recent available WindowsTargetPlatformVersion:
             target = Compiler._get_latest_windows_target_platform_version()
             args = [
-                self.init_script,
+                *self.init_script,
                 "&",
                 "msbuild",
                 f"/p:Configuration={str(self.mode).lower()}",
@@ -1196,12 +1164,11 @@ class Compiler:
                 "allinone.sln",
             ]
             try:
-                subprocess.run(args, check=True, capture_output=True)
+                self._run_streaming(args, "build_log.txt")
             except subprocess.CalledProcessError as e:
                 print("ERROR: Failed to build ICU using its custom build script")
-                print(e.output.decode("utf-8"))
-                if e.stderr:
-                    print(e.stderr.decode("utf-8"))
+                if e.output:
+                    print(e.output.decode("utf-8", errors="replace"))
                 exit(1)
             os.chdir(os.path.join("..", ".."))
             bin_dir = os.path.join(self.install_dir, "bin")
@@ -1266,7 +1233,10 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "eigen3")):
                 print("  Not rebuilding Eigen3, it is already in the LibPack")
                 return
-        self._build_standard_cmake()
+        # These BLAS toolchains require a Fortran compiler, which is often not available. We don't
+        # actually NEED these, so just turn them off.
+        extra_args = ["-D EIGEN_BUILD_BLAS=OFF", "-D EIGEN_BUILD_LAPACK=OFF"]
+        self._build_standard_cmake(extra_args)
 
     def build_yamlcpp(self, _: None):
         if self.skip_existing:
@@ -1277,10 +1247,18 @@ class Compiler:
         self._build_standard_cmake(extra_args)
 
     def build_opencamlib(self, _: None):
+        # opencamlib's CMake installs the Python extension to a relative DESTINATION
+        # ("opencamlib") under CMAKE_INSTALL_PREFIX, expecting either scikit-build to
+        # supply a wheel root or the build driver to point CMAKE_INSTALL_PREFIX at a
+        # site-packages directory (see src/pythonlib/pythonlib.cmake). Other Python
+        # C-extensions in this LibPack (for example pivy) detect Python_SITEARCH from
+        # CMake's FindPython and install themselves into site-packages directly;
+        # opencamlib does not. To ensure it ends up in the right place we override the prefix
+        # for this one package so its "opencamlib" destination resolves under the
+        # LibPack's site-packages.
+        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
         if self.skip_existing:
-            if os.path.exists(
-                os.path.join(self.install_dir, "bin", "Lib", "site-packages", "opencamlib")
-            ):
+            if os.path.exists(os.path.join(site_packages, "opencamlib", "ocl.pyd")):
                 print("  Not rebuilding opencamlib, it is already in the LibPack")
                 return
         extra_args = [
@@ -1288,6 +1266,7 @@ class Compiler:
             "-D BUILD_PY_LIB=ON",
             "-D BUILD_DOC=OFF",
             "-D Boost_USE_STATIC_LIBS=OFF",
+            f"-D CMAKE_INSTALL_PREFIX={site_packages}",
         ]
         self._build_standard_cmake(extra_args)
 
@@ -1326,3 +1305,23 @@ class Compiler:
         if sys.platform == "win32":
             extra_args.extend(["-D GTEST_FORCE_SHARED_CRT=ON", "-D GTEST_DISABLE_PTHREADS=ON"])
         self._build_standard_cmake(extra_args)
+
+    def build_ifcopenshell(self, _=None):
+        """On x64 Windows ifcopenshell is installed via pip from PyPI. On ARM64 Windows no
+        PyPI wheel exists, so the working directory is populated from the prebuilt zip at
+        builds.ifcopenshell.org and the package directory is copied into site-packages."""
+        if platform.machine() != "ARM64" or sys.platform != "win32":
+            return
+        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
+        target = os.path.join(site_packages, "ifcopenshell")
+        if self.skip_existing and os.path.exists(target):
+            print("  Not reinstalling ifcopenshell, it is already in the LibPack")
+            return
+        source = os.path.join(os.getcwd(), "ifcopenshell")
+        if not os.path.exists(source):
+            print(f"ERROR: extracted ifcopenshell directory not found at {source}")
+            exit(1)
+        os.makedirs(site_packages, exist_ok=True)
+        if os.path.exists(target):
+            shutil.rmtree(target, onerror=remove_readonly)
+        shutil.copytree(source, target)

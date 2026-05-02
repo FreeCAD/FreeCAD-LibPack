@@ -22,18 +22,24 @@ paths_to_delete = [
 
 
 def delete_extraneous_files(base_path: str) -> None:
-    """Delete each of the files listed above from the path specified in base_path. Failure to delete a file does not
-    constitute a fatal error."""
+    """Delete each of the files or directories listed above from the path specified in base_path. Failure to delete an
+    entry does not constitute a fatal error."""
     print("Removing extraneous files")
     if not os.path.exists(base_path):
         raise RuntimeError(f"{base_path} does not exist")
     if not os.path.isdir(base_path):
         raise RuntimeError(f"{base_path} is not a directory")
-    for file in paths_to_delete:
+    for entry in paths_to_delete:
+        target = os.path.join(base_path, entry)
+        if not os.path.lexists(target):
+            continue
         try:
-            os.unlink(os.path.join(base_path, file))
-        except OSError as e:
-            # If the file isn't there, that's as good as deleting it, right?
+            if os.path.isdir(target) and not os.path.islink(target):
+                shutil.rmtree(target)
+            else:
+                os.unlink(target)
+        except OSError:
+            # If the entry cannot be removed, that's not a fatal error.
             pass
 
 
@@ -191,3 +197,237 @@ def delete_clang_executables(base_path: str):
                 os.unlink(os.path.join(base_path, "bin", file))
             except OSError as e:
                 pass
+
+
+UNUSED_STATIC_LIB_PREFIXES = ("clang", "LLVM", "clazy", "lld")
+
+
+def delete_unused_static_libs(base_path: str) -> int:
+    """Remove the LLVM, Clang, LLD, and clazy static libraries from lib/.
+
+    FreeCAD links against libclang's stable C ABI through libclang.dll only. The clang*.lib, LLVM*.lib, lld*.lib, and
+    clazy*.lib files in lib/ are the internal C++ static libraries used to build other LLVM-based tools, and are not
+    consumed by FreeCAD or any of its dependencies. Removing them saves roughly one gigabyte from the LibPack.
+
+    Returns the number of files actually removed, which is useful for logging and for the unit tests.
+    """
+    print("Removing unused LLVM, Clang, LLD, and clazy static libraries")
+    lib_dir = os.path.join(base_path, "lib")
+    if not os.path.isdir(lib_dir):
+        return 0
+
+    removed = 0
+    for entry in os.listdir(lib_dir):
+        if not entry.lower().endswith(".lib"):
+            continue
+        if not entry.startswith(UNUSED_STATIC_LIB_PREFIXES):
+            continue
+        full_path = os.path.join(lib_dir, entry)
+        if not os.path.isfile(full_path):
+            continue
+        try:
+            os.unlink(full_path)
+            removed += 1
+        except OSError as e:
+            print(f"Failed to delete {full_path}: {e}")
+    return removed
+
+
+_DOCUMENTATION_RELATIVE_DIRS = (
+    os.path.join("doc"),
+    os.path.join("share", "doc"),
+)
+
+
+def delete_documentation(base_path: str) -> int:
+    """Remove the human-readable documentation trees that upstream installers leave behind.
+
+    Three sources contribute to these directories:
+      - share/doc/med-fichier-<version>/ holds roughly 110 megabytes of generated MED HTML and PDF.
+      - share/doc/{gmsh,pcre2,zlib,xerces-c,clazy} ship reference manuals and READMEs.
+      - doc/{config,global}/ at the LibPack root is Qt's qdoc input configuration: HTML templates, theme assets,
+        and per-module URL definitions used by qdoc.exe to produce documentation.
+
+    None of this material is consumed when FreeCAD or any of its dependencies are built or run, so both directory
+    trees are removed wholesale. Returns the number of top-level directories removed."""
+    print("Removing bundled documentation trees")
+    removed = 0
+    for relative in _DOCUMENTATION_RELATIVE_DIRS:
+        target = os.path.join(base_path, relative)
+        if not os.path.isdir(target):
+            continue
+        try:
+            shutil.rmtree(target)
+            removed += 1
+        except OSError as e:
+            print(f"Failed to delete {target}: {e}")
+    return removed
+
+
+def delete_occt_sample_data(base_path: str) -> bool:
+    """Remove the top-level data/ directory of OpenCASCADE sample geometry.
+
+    OCCT installs a 50 MB collection of demonstration BREP, STL, IGES, STEP, VRML, and image files under data/.
+    These are inputs for OCCT's Tcl tutorial scripts, which are themselves removed by delete_extraneous_files via
+    the samples/ entry in paths_to_delete. With the consuming scripts gone, the data tree is dead weight.
+
+    Returns True if the directory was found and removed."""
+    print("Removing OCCT sample data")
+    target = os.path.join(base_path, "data")
+    if not os.path.isdir(target):
+        return False
+    try:
+        shutil.rmtree(target)
+        return True
+    except OSError as e:
+        print(f"Failed to delete {target}: {e}")
+        return False
+
+
+def delete_lldb(base_path: str) -> int:
+    """Remove the LLDB debugger runtime files.
+
+    The LLVM toolchain ships LLDB as the bundled liblldb.dll plus a Python bindings package. FreeCAD does not embed
+    or attach a debugger, so the entire LLDB runtime is dead weight, accounting for roughly 175 megabytes of DLLs and
+    a similarly sized Python package.
+
+    Returns the number of paths removed."""
+    print("Removing LLDB runtime")
+    targets = [
+        os.path.join(base_path, "bin", "liblldb.dll"),
+        os.path.join(base_path, "bin", "liblldb-original.dll"),
+        os.path.join(base_path, "lib", "site-packages", "lldb"),
+        os.path.join(base_path, "bin", "Lib", "site-packages", "lldb"),
+    ]
+    removed = 0
+    for target in targets:
+        if not os.path.lexists(target):
+            continue
+        try:
+            if os.path.isdir(target) and not os.path.islink(target):
+                shutil.rmtree(target)
+            else:
+                os.unlink(target)
+            removed += 1
+        except OSError as e:
+            print(f"Failed to delete {target}: {e}")
+    return removed
+
+
+def delete_bundled_cmake(base_path: str) -> bool:
+    """Remove the cmake pip package from the bundled Python.
+
+    Some pip dependency pulls in the cmake package as a transitive build requirement. It installs a complete CMake
+    distribution (the cmake.exe binary, modules, templates, and roughly nine megabytes of HTML documentation) under
+    bin/Lib/site-packages/cmake, accounting for about 90 megabytes that FreeCAD never uses. Developers building
+    FreeCAD provide their own CMake installation.
+
+    Returns True if the package was found and removed."""
+    print("Removing bundled cmake pip package")
+    target = os.path.join(base_path, "bin", "Lib", "site-packages", "cmake")
+    if not os.path.isdir(target):
+        return False
+    try:
+        shutil.rmtree(target)
+        return True
+    except OSError as e:
+        print(f"Failed to delete {target}: {e}")
+        return False
+
+
+_LLVM_INTERNAL_HEADER_DIRS = ("clang", "clang-tidy", "llvm", "lldb")
+
+
+def delete_llvm_internal_headers(base_path: str) -> int:
+    """Remove the LLVM, Clang, Clang-Tidy, and LLDB internal C++ headers from include/.
+
+    FreeCAD consumes libclang only through the stable C ABI exposed by include/clang-c/ and include/llvm-c/. The
+    sibling include/clang/, include/clang-tidy/, include/llvm/, and include/lldb/ trees expose the internal C++ APIs
+    used to build LLVM-based tools and are never included by FreeCAD or any of its dependencies. The C ABI directories
+    (clang-c and llvm-c) are intentionally preserved.
+
+    Returns the number of directories removed."""
+    print("Removing internal LLVM, Clang, Clang-Tidy, and LLDB headers")
+    include_dir = os.path.join(base_path, "include")
+    if not os.path.isdir(include_dir):
+        return 0
+
+    removed = 0
+    for name in _LLVM_INTERNAL_HEADER_DIRS:
+        target = os.path.join(include_dir, name)
+        if not os.path.isdir(target):
+            continue
+        try:
+            shutil.rmtree(target)
+            removed += 1
+        except OSError as e:
+            print(f"Failed to delete {target}: {e}")
+    return removed
+
+
+def delete_pdb_files(base_path: str) -> int:
+    """Remove every Microsoft debug-symbol (.pdb) file from the LibPack.
+
+    PDB files are useful for crash-dump symbolication but are never required to compile or run FreeCAD. They account
+    for roughly 150 megabytes spread across the bundled Python interpreter, ICU, OpenSSL, debugpy, and various Qt
+    helper executables. A separate debugging LibPack carries them when needed; the release LibPack does not.
+
+    Returns the number of files removed."""
+    print("Removing PDB debug-symbol files")
+    removed = 0
+    for root, _, files in os.walk(base_path):
+        for name in files:
+            if not name.lower().endswith(".pdb"):
+                continue
+            full_path = os.path.join(root, name)
+            try:
+                os.unlink(full_path)
+                removed += 1
+            except OSError as e:
+                print(f"Failed to delete {full_path}: {e}")
+    return removed
+
+
+_PYTHON_TEST_DIR_NAMES = frozenset({"test", "tests"})
+
+
+def delete_python_test_suites(base_path: str) -> int:
+    """Remove embedded test suites from the bundled Python distribution.
+
+    Two locations are pruned:
+      - bin/Lib/test, the Python standard library's own self-test suite, which is never needed at runtime.
+      - bin/Lib/site-packages/**/test and .../tests, the per-package test directories shipped by scientific Python
+        wheels (numpy, scipy, matplotlib, shapely, nltk, etc.). These contain test data, baseline images, and pytest
+        modules that are not imported during normal use.
+
+    Boost's test header library at include/boost-X_Y/boost/test is intentionally left in place because it is a usable
+    public library, not a test suite for FreeCAD's dependencies.
+
+    Returns the number of directories removed."""
+    print("Removing Python test suites")
+    removed = 0
+
+    stdlib_test = os.path.join(base_path, "bin", "Lib", "test")
+    if os.path.isdir(stdlib_test):
+        try:
+            shutil.rmtree(stdlib_test)
+            removed += 1
+        except OSError as e:
+            print(f"Failed to delete {stdlib_test}: {e}")
+
+    site_packages = os.path.join(base_path, "bin", "Lib", "site-packages")
+    if not os.path.isdir(site_packages):
+        return removed
+
+    for root, dirs, _ in os.walk(site_packages, topdown=True):
+        matches = [d for d in dirs if d.lower() in _PYTHON_TEST_DIR_NAMES]
+        for match in matches:
+            full_path = os.path.join(root, match)
+            try:
+                shutil.rmtree(full_path)
+                removed += 1
+            except OSError as e:
+                print(f"Failed to delete {full_path}: {e}")
+        dirs[:] = [d for d in dirs if d not in matches]
+
+    return removed

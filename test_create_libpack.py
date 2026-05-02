@@ -145,7 +145,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
             ]
         }
         create_libpack.fetch_remote_data(test_config)
-        mock_clone.assert_called_once_with("test1", "test1_repo")
+        mock_clone.assert_called_once_with("test1", "test1_repo", None, None)
 
     @patch("create_libpack.clone")
     def test_non_git_entries_are_ignored(self, mock_clone: MagicMock):
@@ -158,24 +158,55 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         create_libpack.fetch_remote_data(test_config)
         mock_clone.assert_not_called()
 
+    @patch("os.chdir")
     @patch("subprocess.run")
-    def test_clone_calls_git_with_ref(self, run_mock: MagicMock):
+    def test_clone_calls_git_with_ref(self, run_mock: MagicMock, _):
         """When given a repo and a ref, git clone is set up appropriately"""
         create_libpack.clone("name", "https://some.url", "some_git_ref")
-        run_mock.assert_called_once()
-        call_data: list = run_mock.call_args[0][0]
+        call_data: list = run_mock.call_args_list[0][0][0]
         self.assertIn("https://some.url", call_data)
         self.assertIn("some_git_ref", call_data)
-        self.assertEquals(call_data[-1], "name")
+        self.assertIn("--depth", call_data)
+        self.assertEqual(call_data[-1], "name")
 
+    @patch("os.chdir")
     @patch("subprocess.run")
-    def test_clone_calls_git_without_ref(self, run_mock: MagicMock):
+    def test_clone_calls_git_without_ref(self, run_mock: MagicMock, _):
         """When given a repo and a ref, git clone is set up appropriately"""
         create_libpack.clone("test", "https://some.url")
-        run_mock.assert_called_once()
-        call_data = run_mock.call_args[0][0]
+        call_data = run_mock.call_args_list[0][0][0]
         self.assertNotIn(None, call_data)
         self.assertNotIn("--branch", call_data)
+
+    def test_build_vswhere_args_latest(self):
+        """The 'latest' value uses vswhere's -latest flag and no -version flag."""
+        args = create_libpack.build_vswhere_args("latest")
+        self.assertIn("-latest", args)
+        self.assertNotIn("-version", args)
+
+    def test_build_vswhere_args_friendly_alias(self):
+        """A friendly alias like '2022' translates to a vswhere -version range."""
+        args = create_libpack.build_vswhere_args("2022")
+        self.assertIn("-version", args)
+        idx = args.index("-version")
+        self.assertEqual(args[idx + 1], "[17.0,18.0)")
+        self.assertNotIn("-latest", args)
+
+    def test_build_vswhere_args_raw_range_passthrough(self):
+        """A raw vswhere range string is forwarded verbatim."""
+        args = create_libpack.build_vswhere_args("[16.0,17.0)")
+        idx = args.index("-version")
+        self.assertEqual(args[idx + 1], "[16.0,17.0)")
+
+    @patch("os.chdir")
+    @patch("subprocess.run")
+    def test_clone_qt_skips_submodule_init(self, run_mock: MagicMock, _):
+        """Qt's supermodule has many submodules we do not build, and its configure.bat
+        initializes only the ones we need, so the clone path skips submodule init."""
+        create_libpack.clone("qt", "https://qt.url", "v6.11.0")
+        for call in run_mock.call_args_list:
+            args = call[0][0]
+            self.assertNotIn("submodule", args)
 
     @patch("subprocess.run")
     def test_exception_is_caught_and_calls_exit(self, run_mock: MagicMock):

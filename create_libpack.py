@@ -29,6 +29,7 @@ from contextlib import contextmanager
 import ctypes
 import json
 import os
+from pathlib import Path
 import platform
 import shutil
 import stat
@@ -51,10 +52,9 @@ except ImportError:
 
 import compile_all
 
-path_to_7zip = "C:\\Program Files\\7-Zip\\7z.exe"
-path_to_bison = "C:\\Program Files\\win-flex-bison\\win_bison.exe"
-devel_init_script_x64 = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat"
-devel_init_script_arm64 = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsarm64.bat"
+path_to_7zip = r"C:\Program Files\7-Zip\7z.exe"
+path_to_bison = r"C:\Program Files\win-flex-bison\win_bison.exe"
+vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 
 def remove_readonly(func, path, _) -> None:
@@ -156,16 +156,29 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
             print(f"Cloning {url} at {ref}")
         args = ["git", "clone"]
         if ref is not None:
-            args.extend(["--branch", ref])
+            args.extend(["--branch", ref, "--depth", "1"])
         elif hash is None:
             args.extend(["--depth", "1"])
-        args.extend(["--recurse-submodules", url, name])
+        args.extend([url, name])
         subprocess.run(args, capture_output=True, check=True)
 
         if hash is not None:
             print(f"  Checking out {hash}")
             os.chdir(name)
             subprocess.run(["git", "checkout", hash], capture_output=True, check=True)
+            os.chdir("..")
+
+        # Qt's qt5 supermodule contains dozens of submodules and we only build a few. Its
+        # configure.bat handles selective submodule initialization via -init-submodules, so
+        # cloning the supermodule alone is much faster than recursively initializing every
+        # submodule here.
+        if name != "qt":
+            os.chdir(name)
+            subprocess.run(
+                ["git", "submodule", "update", "--init", "--recursive", "--depth", "1"],
+                capture_output=True,
+                check=True,
+            )
             os.chdir("..")
 
     except subprocess.CalledProcessError as e:
@@ -227,6 +240,84 @@ def write_manifest(outer_config: dict, mode_used: compile_all.BuildMode):
     )
     with open(version_file, "w", encoding="utf-8") as f:
         f.write(outer_config["LibPack-version"])
+
+
+VS_VERSION_RANGES = {
+    "2022": "[17.0,18.0)",
+    "2026": "[18.0,19.0)",
+}
+
+
+def list_msvc_tools_versions(vs_install_path: str) -> list:
+    """Return the names of MSVC tools directories that contain a working compiler. Used
+    in error messages to show the user what is actually installed."""
+    msvc_root = Path(vs_install_path) / "VC" / "Tools" / "MSVC"
+    if not msvc_root.is_dir():
+        return []
+    versions = []
+    for d in sorted(msvc_root.iterdir()):
+        if d.is_dir() and _msvc_dir_has_cl(d):
+            versions.append(d.name)
+    return versions
+
+
+def _msvc_dir_has_cl(tools_dir: Path) -> bool:
+    """A populated MSVC tools directory contains cl.exe under at least one Host*/<arch>
+    bin directory. Empty stub directories (sometimes created by the VS installer when
+    only headers or redistributables are selected) are filtered out."""
+    bin_root = tools_dir / "bin"
+    if not bin_root.is_dir():
+        return False
+    for host in bin_root.iterdir():
+        if not host.is_dir() or not host.name.lower().startswith("host"):
+            continue
+        for target in host.iterdir():
+            if (target / "cl.exe").exists():
+                return True
+    return False
+
+
+def resolve_msvc_tools_version(vs_install_path: str, requested: str) -> str:
+    """Resolve a possibly-partial MSVC tools version (for example '14.4' or '14.44') to
+    the full installed version (for example '14.44.35207') by scanning the
+    VC\\Tools\\MSVC directories. Empty stub directories are skipped. Returns the
+    highest matching version, or None if no installed compiler matches the prefix."""
+    msvc_root = Path(vs_install_path) / "VC" / "Tools" / "MSVC"
+    if not msvc_root.is_dir():
+        return None
+    matches = []
+    for d in msvc_root.iterdir():
+        if not d.is_dir():
+            continue
+        name = d.name
+        if name == requested or name.startswith(requested + "."):
+            if _msvc_dir_has_cl(d):
+                matches.append(name)
+    if not matches:
+        return None
+    matches.sort(key=lambda v: tuple(int(p) for p in v.split(".") if p.isdigit()), reverse=True)
+    return matches[0]
+
+
+def build_vswhere_args(vs_version: str) -> list:
+    """Build the vswhere command line for the requested Visual Studio selection. The
+    'latest' value selects whatever vswhere considers newest. Nicer aliases like
+    '2022' and '2026' translate to vswhere's -version range syntax. Any other value is
+    sent to -version directly, allowing callers to pass a raw range such as
+    '[17.0,18.0)' if needed."""
+    base = [
+        vswhere,
+        "-products",
+        "*",
+        "-requires",
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",  # Dirty lie, works on ARM too
+        "-property",
+        "installationPath",
+    ]
+    if vs_version == "latest":
+        return [vswhere, "-latest"] + base[1:]
+    version_range = VS_VERSION_RANGES.get(vs_version, vs_version)
+    return [base[0], "-version", version_range] + base[1:]
 
 
 @contextmanager
@@ -300,10 +391,43 @@ if __name__ == "__main__":
     )
     parser.add_argument("--7zip", help="Path to 7-zip executable", default=path_to_7zip)
     parser.add_argument("--bison", help="Path to Bison executable", default=path_to_bison)
+    parser.add_argument(
+        "--vs-version",
+        help=(
+            "Visual Studio toolchain to build with. Accepts 'latest' (default), "
+            "'2022', '2026', or a raw vswhere -version range such as '[17.0,18.0)'."
+        ),
+        default="latest",
+    )
+    parser.add_argument(
+        "--vcvars-ver",
+        help=(
+            "Optional MSVC toolset version to select inside the chosen Visual Studio "
+            "install, passed to vcvars64.bat as -vcvars_ver=VALUE. Use this to build "
+            "with the v143 (VS 2022) toolset from a VS 2026 installation, for example "
+            "--vcvars-ver=14.4."
+        ),
+        default="",
+    )
+    parser.add_argument(
+        "--fallback-build-dir",
+        help=(
+            "Override the fallback build directory used by Qt to dodge Windows path-length "
+            "limits during its build. Replaces the value declared in config.json for the qt "
+            "entry. Supply a short path on a drive that exists on this machine, for example "
+            "C:\\temp."
+        ),
+        default="",
+    )
     parser.add_argument("path-to-final-libpack-dir", nargs="?", default="./")
     args = vars(parser.parse_args())
 
     config_dict = load_config(args["config"])
+    if args["fallback_build_dir"]:
+        for item in config_dict.get("content", []):
+            if item.get("name") == "qt":
+                item["fallback-build-dir"] = args["fallback_build_dir"]
+                break
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
@@ -331,10 +455,43 @@ if __name__ == "__main__":
             skip_existing=args["no_skip_existing_build"],
             mode=mode,
         )
+        vs_install_path = subprocess.check_output(
+            build_vswhere_args(args["vs_version"]),
+            text=True,
+        ).strip()
+        if not vs_install_path:
+            print(
+                f"ERROR: vswhere returned no Visual Studio installation matching "
+                f"--vs-version={args['vs_version']!r}"
+            )
+            exit(1)
+
+        base_path = Path(vs_install_path) / "VC" / "Auxiliary" / "Build"
         if platform.machine() == "ARM64":
-            compiler.init_script = devel_init_script_arm64
+            init_bat = str(base_path / "vcvarsarm64.bat")
         else:
-            compiler.init_script = devel_init_script_x64
+            init_bat = str(base_path / "vcvars64.bat")
+        # vcvars internally shells out to vswhere.exe to enumerate installed MSVC tool
+        # versions. If vswhere is not on PATH, vcvars silently ignores -vcvars_ver and
+        # falls back to the latest installed compiler. Prepend the vswhere directory to
+        # PATH so child subprocesses inherit it and -vcvars_ver is honored.
+        vswhere_dir = os.path.dirname(vswhere)
+        if vswhere_dir and vswhere_dir not in os.environ.get("PATH", "").split(os.pathsep):
+            os.environ["PATH"] = vswhere_dir + os.pathsep + os.environ.get("PATH", "")
+        if args["vcvars_ver"]:
+            compiler.init_script = [init_bat, f"-vcvars_ver={args['vcvars_ver']}"]
+            compiler.msvc_tools_version = resolve_msvc_tools_version(
+                vs_install_path, args["vcvars_ver"]
+            )
+            if not compiler.msvc_tools_version:
+                print(
+                    f"ERROR: No installed MSVC tools matching --vcvars-ver={args['vcvars_ver']!r} "
+                    f"under {vs_install_path}\\VC\\Tools\\MSVC. Available: "
+                    f"{list_msvc_tools_versions(vs_install_path)}"
+                )
+                exit(1)
+        else:
+            compiler.init_script = [init_bat]
         compiler.compile_all()
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files
@@ -346,5 +503,13 @@ if __name__ == "__main__":
         # path_cleaner.delete_qtquick(base_path)
         path_cleaner.delete_llvm_executables(base_path)
         path_cleaner.delete_clang_executables(base_path)
+        path_cleaner.delete_unused_static_libs(base_path)
+        path_cleaner.delete_lldb(base_path)
+        path_cleaner.delete_bundled_cmake(base_path)
+        path_cleaner.delete_llvm_internal_headers(base_path)
+        path_cleaner.delete_documentation(base_path)
+        path_cleaner.delete_occt_sample_data(base_path)
+        path_cleaner.delete_python_test_suites(base_path)
+        path_cleaner.delete_pdb_files(base_path)
 
         write_manifest(config_dict, mode)
