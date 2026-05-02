@@ -125,6 +125,12 @@ class Compiler:
         self.skip_existing = skip_existing
         self.install_dir = libpack_dir(config, mode)
         self.init_script = None
+        # Full MSVC tools version (for example "14.44.35207") to pass to MSBuild as
+        # /p:VCToolsVersion. Required when the requested PlatformToolset (v143) lacks
+        # a matching Microsoft.VCToolsVersion.v<N>.default.props file, in which case
+        # MSBuild falls back to the newest installed compiler regardless of what the
+        # environment or -vcvars_ver requested.
+        self.msvc_tools_version = None
         self.mode = mode
         self.strict_mode = True
 
@@ -229,6 +235,25 @@ class Compiler:
             return os.path.join(self.install_dir, "bin", "python") + to_exe()
         return os.path.join(self.install_dir, "bin", "python_d") + to_exe()
 
+    def _python_build_env(self):
+        """Environment for the host Python that PCbuild\\build.bat -e launches to fetch
+        external sources. Some Python installs on Windows ship without a usable CA bundle,
+        which makes get_external.py fail with SSL: CERTIFICATE_VERIFY_FAILED when
+        downloading from GitHub. Point SSL_CERT_FILE at the certifi bundle that ships with
+        requests so the host Python can verify TLS. Honor any value the caller already
+        set."""
+        env = os.environ.copy()
+        if "SSL_CERT_FILE" not in env:
+            try:
+                import certifi
+
+                ca_bundle = certifi.where()
+            except ImportError:
+                ca_bundle = None
+            if ca_bundle and os.path.exists(ca_bundle):
+                env["SSL_CERT_FILE"] = ca_bundle
+        return env
+
     def build_python(self, args=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "bin", "DLLs")):
@@ -238,6 +263,20 @@ class Compiler:
             expected_exe_path = self.python_exe()
             arch = "x64" if platform.machine() == "AMD64" else "ARM64"
             path = "amd64" if platform.machine() == "AMD64" else "arm64"
+            env = self._python_build_env()
+            # When MSBuild's PlatformToolset selection chain cannot resolve a default
+            # VCToolsVersion for v143 (the case on Visual Studio 2026 installs that
+            # ship the v143 toolset but not Microsoft.VCToolsVersion.v143.default.props),
+            # MSBuild silently picks the newest installed compiler and then fails the
+            # toolset compatibility check. Force the version via PCbuild\\msbuild.rsp,
+            # which build.bat documents as the supported way to inject extra MSBuild
+            # flags. Command-line /p: cannot be used here because cmd's batch parameter
+            # parser splits on the '=' before build.bat passes %1..%9 through.
+            rsp_path = pathlib.Path("PCbuild") / "msbuild.rsp"
+            if self.msvc_tools_version:
+                rsp_path.write_text(
+                    f"/p:VCToolsVersion={self.msvc_tools_version}\n", encoding="utf-8"
+                )
             try:
                 self._run_streaming(
                     [
@@ -251,6 +290,7 @@ class Compiler:
                         "-e",
                     ],
                     "build_log.txt",
+                    env=env,
                 )
             except subprocess.CalledProcessError as e:
                 print("Python build failed")
@@ -1209,10 +1249,18 @@ class Compiler:
         self._build_standard_cmake(extra_args)
 
     def build_opencamlib(self, _: None):
+        # opencamlib's CMake installs the Python extension to a relative DESTINATION
+        # ("opencamlib") under CMAKE_INSTALL_PREFIX, expecting either scikit-build to
+        # supply a wheel root or the build driver to point CMAKE_INSTALL_PREFIX at a
+        # site-packages directory (see src/pythonlib/pythonlib.cmake). Other Python
+        # C-extensions in this LibPack (for example pivy) detect Python_SITEARCH from
+        # CMake's FindPython and install themselves into site-packages directly;
+        # opencamlib does not. To ensure it ends up in the right place we override the prefix
+        # for this one package so its "opencamlib" destination resolves under the
+        # LibPack's site-packages.
+        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
         if self.skip_existing:
-            if os.path.exists(
-                os.path.join(self.install_dir, "bin", "Lib", "site-packages", "opencamlib")
-            ):
+            if os.path.exists(os.path.join(site_packages, "opencamlib", "ocl.pyd")):
                 print("  Not rebuilding opencamlib, it is already in the LibPack")
                 return
         extra_args = [
@@ -1220,6 +1268,7 @@ class Compiler:
             "-D BUILD_PY_LIB=ON",
             "-D BUILD_DOC=OFF",
             "-D Boost_USE_STATIC_LIBS=OFF",
+            f"-D CMAKE_INSTALL_PREFIX={site_packages}",
         ]
         self._build_standard_cmake(extra_args)
 

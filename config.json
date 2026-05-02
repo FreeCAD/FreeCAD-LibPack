@@ -188,7 +188,10 @@
         {
             "name":"netgen",
             "git-repo":"https://github.com/NGSolve/netgen",
-            "git-ref":"v6.2.2604"
+            "git-ref":"v6.2.2604",
+            "patches":[
+                "patches/netgen-02-arm64-msvc-time-counter.patch"
+            ]
         },
         {
             "name":"hdf5",

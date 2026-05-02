@@ -1,0 +1,9 @@
+@@@ libsrc/core/utils.hpp @@@
+@@ -1858,16 +1858,142 @@
+ dtsc();%0A
++#elif defined(_MSC_VER) && defined(_M_ARM64)%0A    return std::chrono::high_resolution_clock::now().time_since_epoch().count();%0A
+ #elif de
+@@ -2155,52 +2155,8 @@
+ N__)
+- %7C%7C (defined(_MSC_VER) && defined(_M_ARM64))
+ %0A   

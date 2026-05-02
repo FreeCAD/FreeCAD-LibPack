@@ -248,6 +248,57 @@ VS_VERSION_RANGES = {
 }
 
 
+def list_msvc_tools_versions(vs_install_path: str) -> list:
+    """Return the names of MSVC tools directories that contain a working compiler. Used
+    in error messages to show the user what is actually installed."""
+    msvc_root = Path(vs_install_path) / "VC" / "Tools" / "MSVC"
+    if not msvc_root.is_dir():
+        return []
+    versions = []
+    for d in sorted(msvc_root.iterdir()):
+        if d.is_dir() and _msvc_dir_has_cl(d):
+            versions.append(d.name)
+    return versions
+
+
+def _msvc_dir_has_cl(tools_dir: Path) -> bool:
+    """A populated MSVC tools directory contains cl.exe under at least one Host*/<arch>
+    bin directory. Empty stub directories (sometimes created by the VS installer when
+    only headers or redistributables are selected) are filtered out."""
+    bin_root = tools_dir / "bin"
+    if not bin_root.is_dir():
+        return False
+    for host in bin_root.iterdir():
+        if not host.is_dir() or not host.name.lower().startswith("host"):
+            continue
+        for target in host.iterdir():
+            if (target / "cl.exe").exists():
+                return True
+    return False
+
+
+def resolve_msvc_tools_version(vs_install_path: str, requested: str) -> str:
+    """Resolve a possibly-partial MSVC tools version (for example '14.4' or '14.44') to
+    the full installed version (for example '14.44.35207') by scanning the
+    VC\\Tools\\MSVC directories. Empty stub directories are skipped. Returns the
+    highest matching version, or None if no installed compiler matches the prefix."""
+    msvc_root = Path(vs_install_path) / "VC" / "Tools" / "MSVC"
+    if not msvc_root.is_dir():
+        return None
+    matches = []
+    for d in msvc_root.iterdir():
+        if not d.is_dir():
+            continue
+        name = d.name
+        if name == requested or name.startswith(requested + "."):
+            if _msvc_dir_has_cl(d):
+                matches.append(name)
+    if not matches:
+        return None
+    matches.sort(key=lambda v: tuple(int(p) for p in v.split(".") if p.isdigit()), reverse=True)
+    return matches[0]
+
+
 def build_vswhere_args(vs_version: str) -> list:
     """Build the vswhere command line for the requested Visual Studio selection. The
     'latest' value selects whatever vswhere considers newest. Nicer aliases like
@@ -358,10 +409,25 @@ if __name__ == "__main__":
         ),
         default="",
     )
+    parser.add_argument(
+        "--fallback-build-dir",
+        help=(
+            "Override the fallback build directory used by Qt to dodge Windows path-length "
+            "limits during its build. Replaces the value declared in config.json for the qt "
+            "entry. Supply a short path on a drive that exists on this machine, for example "
+            "C:\\temp."
+        ),
+        default="",
+    )
     parser.add_argument("path-to-final-libpack-dir", nargs="?", default="./")
     args = vars(parser.parse_args())
 
     config_dict = load_config(args["config"])
+    if args["fallback_build_dir"]:
+        for item in config_dict.get("content", []):
+            if item.get("name") == "qt":
+                item["fallback-build-dir"] = args["fallback_build_dir"]
+                break
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
@@ -405,8 +471,25 @@ if __name__ == "__main__":
             init_bat = str(base_path / "vcvarsarm64.bat")
         else:
             init_bat = str(base_path / "vcvars64.bat")
+        # vcvars internally shells out to vswhere.exe to enumerate installed MSVC tool
+        # versions. If vswhere is not on PATH, vcvars silently ignores -vcvars_ver and
+        # falls back to the latest installed compiler. Prepend the vswhere directory to
+        # PATH so child subprocesses inherit it and -vcvars_ver is honored.
+        vswhere_dir = os.path.dirname(vswhere)
+        if vswhere_dir and vswhere_dir not in os.environ.get("PATH", "").split(os.pathsep):
+            os.environ["PATH"] = vswhere_dir + os.pathsep + os.environ.get("PATH", "")
         if args["vcvars_ver"]:
             compiler.init_script = [init_bat, f"-vcvars_ver={args['vcvars_ver']}"]
+            compiler.msvc_tools_version = resolve_msvc_tools_version(
+                vs_install_path, args["vcvars_ver"]
+            )
+            if not compiler.msvc_tools_version:
+                print(
+                    f"ERROR: No installed MSVC tools matching --vcvars-ver={args['vcvars_ver']!r} "
+                    f"under {vs_install_path}\\VC\\Tools\\MSVC. Available: "
+                    f"{list_msvc_tools_versions(vs_install_path)}"
+                )
+                exit(1)
         else:
             compiler.init_script = [init_bat]
         compiler.compile_all()
