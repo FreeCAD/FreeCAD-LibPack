@@ -209,7 +209,8 @@ def delete_unused_static_libs(base_path: str) -> int:
     clazy*.lib files in lib/ are the internal C++ static libraries used to build other LLVM-based tools, and are not
     consumed by FreeCAD or any of its dependencies. Removing them saves roughly one gigabyte from the LibPack.
 
-    Returns the number of files actually removed, which is useful for logging and for the unit tests."""
+    Returns the number of files actually removed, which is useful for logging and for the unit tests.
+    """
     print("Removing unused LLVM, Clang, LLD, and clazy static libraries")
     lib_dir = os.path.join(base_path, "lib")
     if not os.path.isdir(lib_dir):

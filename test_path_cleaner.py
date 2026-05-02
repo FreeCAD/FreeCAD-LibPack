@@ -299,7 +299,9 @@ class TestDeleteOcctSampleData(unittest.TestCase):
         # Arrange
         for sub in ("stl", "occ", "iges", "step", "images", "vrml"):
             os.makedirs(os.path.join(self.base_dir, "data", sub))
-        with open(os.path.join(self.base_dir, "data", "stl", "bearing.stl"), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(self.base_dir, "data", "stl", "bearing.stl"), "w", encoding="utf-8"
+        ) as f:
             f.write("solid")
 
         # Act

@@ -408,9 +408,7 @@ class Compiler:
         print("  Installing the latest pip")
         path_to_python = self.python_exe()
         try:
-            self._run_streaming(
-                [path_to_python, "-m", "ensurepip", "--upgrade"], "pip_log.txt"
-            )
+            self._run_streaming([path_to_python, "-m", "ensurepip", "--upgrade"], "pip_log.txt")
             self._run_streaming(
                 [path_to_python, "-m", "pip", "install", "--upgrade", "pip"], "pip_log.txt"
             )
