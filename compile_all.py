@@ -445,6 +445,28 @@ class Compiler:
                 print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
+    def build_opengl32sw(self, _: None):
+        """Copy Mesa software OpenGL DLL into the LibPack on x64. On ARM64 the DLL is
+        unavailable from Qt's CDN. Does not actually build anything, just copies it."""
+        target = os.path.join(self.install_dir, "bin", "opengl32sw.dll")
+        if self.skip_existing and os.path.exists(target):
+            print("  opengl32sw.dll already in the LibPack, not re-copying")
+            return
+        if platform.machine() == "ARM64":
+            print("  NOTE: opengl32sw.dll is not available for Windows on ARM64 - Skipping")
+            return
+        matches = list(pathlib.Path(os.getcwd()).rglob("opengl32sw.dll"))
+        if not matches:
+            print(
+                f"ERROR: opengl32sw.dll not found under {os.getcwd()}. "
+                "The download or 7z extraction probably failed; check the URL "
+                "in config.json and retry."
+            )
+            exit(1)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(str(matches[0]), target)
+        print(f"  Copied {matches[0]} to {target}")
+
     def build_qt(self, options: dict):
         """Build Qt from source. Always builds qtbase, qtsvg, qtdeclarative, and qttools
         against the LibPack's own zlib and libpng."""
