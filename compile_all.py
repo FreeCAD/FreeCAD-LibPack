@@ -18,6 +18,52 @@ import subprocess
 import stat
 import sys
 
+# Pip requirements skipped in Debug mode because their PyPI distribution is a release-ABI
+# wheel (cp3XX) that cannot install against the Py_DEBUG (cp3XXd) interpreter. These will
+# be source-built against the debug Python in a later phase (debug_build_plan.md Phase 3).
+# Names are matched case-insensitively against the package portion of each requirement
+# specifier in config.json. Trim this set as each package gains a working source-build.
+_DEBUG_BUILD_EXCLUDED_REQUIREMENTS = frozenset(
+    name.lower()
+    for name in (
+        # Direct C/C++/Fortran/Rust extensions with no pure-Python distribution.
+        "cmake",
+        "cog",
+        "contourpy",
+        "debugpy",
+        "httptools",
+        "ifcopenshell",
+        "kiwisolver",
+        "lxml",
+        "numpy",
+        "pillow",
+        "pydantic_core",
+        "PyYAML",
+        "regex",
+        "shapely",
+        "watchfiles",
+        # Transitively excluded because their hard dependencies are excluded above.
+        "fastapi",
+        "matplotlib",
+        "nltk",
+        "pycollada",
+        "pydantic",
+        "scipy",
+    )
+)
+
+# Build-time pure-Python tooling that must be present even when the rest of the requirements
+# list is skipped. setup.py-based packages built later in the LibPack (PySide, opencamlib)
+# import these at build time.
+_DEBUG_BUILD_REQUIRED_TOOLING = ("packaging", "setuptools", "wheel")
+
+
+def _requirement_package_name(spec: str) -> str:
+    """Extract the lowercased package name from a pip requirement specifier such as
+    'numpy==2.4.4' or 'shapely==2.1.2; platform_machine != "ARM64"'."""
+    match = re.match(r"\s*([A-Za-z0-9_.-]+)", spec)
+    return match.group(1).lower() if match else ""
+
 
 class BuildMode(Enum):
     DEBUG = 1
@@ -461,13 +507,21 @@ class Compiler:
                 print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
+    def _filter_debug_requirements(self, requirements):
+        kept = [
+            spec
+            for spec in requirements
+            if _requirement_package_name(spec) not in _DEBUG_BUILD_EXCLUDED_REQUIREMENTS
+        ]
+        kept_names = {_requirement_package_name(spec) for spec in kept}
+        for tool in _DEBUG_BUILD_REQUIRED_TOOLING:
+            if tool.lower() not in kept_names:
+                kept.append(tool)
+        return kept
+
     def _install_python_requirements(self, requirements):
         if self.mode == BuildMode.DEBUG:
-            # PyPI wheels are tagged cp3XX and cannot install against Py_DEBUG (cp3XXd).
-            # For now, install only pure-Python tooling that setup.py-based packages need at build
-            # time later in the LibPack (PySide, opencamlib, and so on). Once I get this working as
-            # far as it can, I'll start actually compiling the debug wheels.
-            requirements = ["packaging", "setuptools", "wheel"]
+            requirements = self._filter_debug_requirements(requirements)
         sentinel = "packaging" if self.mode == BuildMode.DEBUG else "PIL"
         if self.skip_existing:
             if os.path.exists(
