@@ -1,0 +1,5 @@
+@@@ libsrc/core/bitarray.hpp @@@
+@@ -5141,27 +5141,16 @@
+ ; %7D%0A    
+-NGCORE_API 
+ TBitArra

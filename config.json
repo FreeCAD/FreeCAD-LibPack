@@ -196,7 +196,8 @@
             "git-ref":"v6.2.2604",
             "patches":[
                 "patches/netgen-02-arm64-msvc-time-counter.patch",
-                "patches/netgen-03-msvc-runtime-debug-aware.patch"
+                "patches/netgen-03-msvc-runtime-debug-aware.patch",
+                "patches/netgen-04-tbitarray-or-inline-no-export.patch"
             ]
         },
         {
