@@ -191,8 +191,6 @@ class Compiler:
             # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
         if self.mode == BuildMode.DEBUG:
-            base.append("-D Python_FIND_ABI=ON;ANY;ANY")
-            base.append("-D Python3_FIND_ABI=ON;ANY;ANY")
             python_lib = self._python_lib_path()
             if python_lib:
                 base.append(f"-D Python_LIBRARY={python_lib}")
@@ -205,7 +203,9 @@ class Compiler:
             if platform.machine() == "ARM64":
                 base.append("-A ARM64")
             inc_path = self.install_dir.replace("\\", "/")
-            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64 /DNOMINMAX /DPy_NO_LINK_LIB"
+            cxx_flags = (
+                f"/I{inc_path}/include /EHsc /FS /DWIN32 /DWIN64 /DNOMINMAX /DPy_NO_LINK_LIB"
+            )
             if self.strict_mode:
                 # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against
                 # Qt. The same is true for /Zc:__cplusplus /std:c++20
@@ -409,6 +409,23 @@ class Compiler:
                 os.unlink(target)
             print(f"Copying {pyconfig} to {target}")
             shutil.copyfile(pyconfig, target)
+            if self.mode == BuildMode.DEBUG:
+                # FindPython on Windows searches for the release-named library and runtime
+                # DLL independently of any debug-variant hint. Without same-named files in
+                # the LibPack the search escapes to a system Python install and downstream
+                # find_dependency(Python COMPONENTS Development) calls (boost_python's
+                # installed config) reject Development.Embed because the debug library and
+                # release runtime resolve to different installs. Same-content release-named
+                # copies keep every component lookup inside the LibPack.
+                versioned = f"python{major}{minor}"
+                shutil.copy(
+                    os.path.join(libs_dir, f"{versioned}_d.lib"),
+                    os.path.join(libs_dir, f"{versioned}.lib"),
+                )
+                shutil.copy(
+                    os.path.join(bin_dir, f"{versioned}_d.dll"),
+                    os.path.join(bin_dir, f"{versioned}.dll"),
+                )
         else:
             raise NotImplemented("Non-Windows compilation of Python is not implemented yet")
 

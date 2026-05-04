@@ -510,6 +510,7 @@ if __name__ == "__main__":
         path_cleaner.delete_documentation(base_path)
         path_cleaner.delete_occt_sample_data(base_path)
         path_cleaner.delete_python_test_suites(base_path)
-        path_cleaner.delete_pdb_files(base_path)
+        if mode == compile_all.BuildMode.RELEASE:
+            path_cleaner.delete_pdb_files(base_path)
 
         write_manifest(config_dict, mode)
