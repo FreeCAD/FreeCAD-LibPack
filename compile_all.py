@@ -453,9 +453,7 @@ class Compiler:
             print("  opengl32sw.dll already in the LibPack, not re-copying")
             return
         if platform.machine() == "ARM64":
-            print(
-                "  NOTE: opengl32sw.dll is not available for Windows on ARM64 - Skipping"
-            )
+            print("  NOTE: opengl32sw.dll is not available for Windows on ARM64 - Skipping")
             return
         matches = list(pathlib.Path(os.getcwd()).rglob("opengl32sw.dll"))
         if not matches:
