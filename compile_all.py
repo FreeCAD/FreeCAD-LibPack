@@ -180,13 +180,23 @@ class Compiler:
             f"-D Python_DIR={self.install_dir}/bin",
             f"-D Python3_ROOT_DIR={self.install_dir}/bin",
             f"-D Python3_DIR={self.install_dir}/bin",
+            f"-D Python_EXECUTABLE={self.python_exe()}",
+            f"-D Python3_EXECUTABLE={self.python_exe()}",
             "-D Python_FIND_REGISTRY=NEVER",
+            "-D Python3_FIND_REGISTRY=NEVER",
             f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + to_exe(),
             f"-D ZLIB_DIR={self.install_dir}/lib/cmake/",
             "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",
             # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
+        if self.mode == BuildMode.DEBUG:
+            base.append("-D Python_FIND_ABI=ON;ANY;ANY")
+            base.append("-D Python3_FIND_ABI=ON;ANY;ANY")
+            python_lib = self._python_lib_path()
+            if python_lib:
+                base.append(f"-D Python_LIBRARY={python_lib}")
+                base.append(f"-D Python3_LIBRARY={python_lib}")
         if self.boost_include_path:
             base.append(f"-D Boost_INCLUDE_DIR={self.boost_include_path}")
         if self.coin_cmake_path:
@@ -235,6 +245,21 @@ class Compiler:
             return os.path.join(self.install_dir, "bin", "python") + to_exe()
         return os.path.join(self.install_dir, "bin", "python_d") + to_exe()
 
+    def _python_lib_path(self) -> Optional[str]:
+        """Locate the versioned Python import library in the LibPack libs directory,
+        for example python314.lib (release) or python314_d.lib (debug). Returns None
+        if the libs directory or matching file does not yet exist, which is expected
+        before build_python has run."""
+        libs_dir = os.path.join(self.install_dir, "bin", "libs")
+        if not os.path.isdir(libs_dir):
+            return None
+        suffix = "_d" if self.mode == BuildMode.DEBUG else ""
+        pattern = re.compile(rf"^python\d{{2,}}{re.escape(suffix)}\.lib$")
+        for name in os.listdir(libs_dir):
+            if pattern.match(name):
+                return os.path.join(libs_dir, name)
+        return None
+
     def _python_build_env(self):
         """Environment for the host Python that PCbuild\\build.bat -e launches to fetch
         external sources. Some Python installs on Windows ship without a usable CA bundle,
@@ -256,7 +281,7 @@ class Compiler:
 
     def build_python(self, args=None):
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "bin", "DLLs")):
+            if os.path.exists(self.python_exe()):
                 print("  Not rebuilding Python, it is already in the LibPack")
                 return
         if sys.platform.startswith("win32"):
@@ -349,9 +374,10 @@ class Compiler:
                 shutil.copytree(f"Tools\\{sub}", os.path.join(tools_dir, sub), dirs_exist_ok=True)
 
             # Figure out what version of Python we just built:
-            major, minor = self.get_python_version(
-                os.path.join("PCBuild", path, "python.exe")
-            ).split(".")
+            exe_name = "python.exe" if self.mode == BuildMode.RELEASE else "python_d.exe"
+            major, minor = self.get_python_version(os.path.join("PCBuild", path, exe_name)).split(
+                "."
+            )
 
             # Construct the list of files we expect to exist that need to be placed in the toplevel directory, or in
             # libs:
@@ -419,8 +445,17 @@ class Compiler:
             exit(1)
 
     def _install_python_requirements(self, requirements):
+        if self.mode == BuildMode.DEBUG:
+            # PyPI wheels are tagged cp3XX and cannot install against Py_DEBUG (cp3XXd).
+            # For now, install only pure-Python tooling that setup.py-based packages need at build
+            # time later in the LibPack (PySide, opencamlib, and so on). Once I get this working as
+            # far as it can, I'll start actually compiling the debug wheels.
+            requirements = ["packaging", "setuptools", "wheel"]
+        sentinel = "packaging" if self.mode == BuildMode.DEBUG else "PIL"
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PIL")):
+            if os.path.exists(
+                os.path.join(self.install_dir, "bin", "Lib", "site-packages", sentinel)
+            ):
                 print("  Not re-installing Python requirements, they are already in the LibPack")
                 return
         print("  Installing the following requirements (and their dependencies) using pip:")
@@ -472,7 +507,7 @@ class Compiler:
         against the LibPack's own zlib and libpng."""
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
-                print("Not building Qt from source, it already seems to be in the LibPack")
+                print("  Not rebuilding Qt, it is already in the LibPack")
                 return
 
         build_dir = os.path.join(os.getcwd(), f"build-{str(self.mode).lower()}")
@@ -496,7 +531,10 @@ class Compiler:
 
         # Qt needs access to zlib and libpng, and assumes they are installed at the system level. We want to
         # use the LibPack versions. The easiest thing to do is just copy the DLLs:
-        files = ["z.dll", "libpng16.dll"]
+        if self.mode == BuildMode.DEBUG:
+            files = ["zd.dll", "libpng16d.dll"]
+        else:
+            files = ["z.dll", "libpng16.dll"]
         source = os.path.join(self.install_dir, "bin")
         destination = os.path.join(build_dir, "qtbase", "bin")
         os.makedirs(destination, exist_ok=True)
@@ -518,6 +556,8 @@ class Compiler:
             "-opengl",
             "desktop",
         ]
+        if self.mode == BuildMode.DEBUG:
+            init_command.append("-debug")
         try:
             self._run_streaming(init_command, "configure_log.txt")
         except subprocess.CalledProcessError as e:
