@@ -39,7 +39,6 @@ _DEBUG_BUILD_EXCLUDED_REQUIREMENTS = frozenset(
         "pillow",
         "pydantic_core",
         "PyYAML",
-        "regex",
         "shapely",
         "watchfiles",
         # Transitively excluded because their hard dependencies are excluded above.
@@ -56,6 +55,12 @@ _DEBUG_BUILD_EXCLUDED_REQUIREMENTS = frozenset(
 # list is skipped. setup.py-based packages built later in the LibPack (PySide, opencamlib)
 # import these at build time.
 _DEBUG_BUILD_REQUIRED_TOOLING = ("packaging", "setuptools", "wheel")
+
+# Packages with C extensions that pip must source-build against the debug Python rather
+# than pull from PyPI as a wheel. Windows Py_DEBUG reports both cp3XXd and cp3XX as
+# compatible platform tags, so without --no-binary pip happily picks a release wheel that
+# then fails to load against python_d.exe at runtime. Names match pip's --no-binary syntax.
+_DEBUG_BUILD_FROM_SOURCE = ("regex",)
 
 
 def _requirement_package_name(spec: str) -> str:
@@ -533,7 +538,7 @@ class Compiler:
         for req in requirements:
             print("    " + req)
         path_to_python = self.python_exe()
-        call_args = [
+        pip_args = [
             path_to_python,
             "-m",
             "pip",
@@ -542,9 +547,22 @@ class Compiler:
             "--ignore-installed",
             "--no-warn-script-location",
         ]
-        call_args.extend(requirements)
+        if self.mode == BuildMode.DEBUG:
+            for pkg in _DEBUG_BUILD_FROM_SOURCE:
+                pip_args.extend(["--no-binary", pkg])
+        pip_args.extend(requirements)
+        if self.mode == BuildMode.DEBUG:
+            # Source-built C extensions need MSVC visible. Source vcvars first and tell
+            # setuptools to trust the existing SDK env instead of auto-detecting compilers.
+            env = os.environ.copy()
+            env["DISTUTILS_USE_SDK"] = "1"
+            env["MSSdk"] = "1"
+            call_args = [*self.init_script, "&", *pip_args]
+        else:
+            env = None
+            call_args = pip_args
         try:
-            self._run_streaming(call_args, "pip_log.txt")
+            self._run_streaming(call_args, "pip_log.txt", env=env)
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to pip install requirements")
             if e.output:
