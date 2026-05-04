@@ -205,7 +205,7 @@ class Compiler:
             if platform.machine() == "ARM64":
                 base.append("-A ARM64")
             inc_path = self.install_dir.replace("\\", "/")
-            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64 /DNOMINMAX"
+            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64 /DNOMINMAX /DPy_NO_LINK_LIB"
             if self.strict_mode:
                 # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against
                 # Qt. The same is true for /Zc:__cplusplus /std:c++20

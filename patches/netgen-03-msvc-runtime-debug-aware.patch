@@ -1,0 +1,5 @@
+@@@ CMakeLists.txt @@@
+@@ -157,16 +157,40 @@
+ Threaded
++$%3C$%3CCONFIG:Debug%3E:Debug%3E
+ DLL%22)%0A%0Ac
