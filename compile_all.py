@@ -29,38 +29,105 @@ _DEBUG_BUILD_EXCLUDED_REQUIREMENTS = frozenset(
         # Direct C/C++/Fortran/Rust extensions with no pure-Python distribution.
         "cmake",
         "cog",
+        # contourpy uses meson-python and looks up pybind11 via pkg-config in its
+        # meson.build. Windows does not ship pkg-config, so the metadata step fails
+        # before we even get to the C++ compile. Reintroducing this package needs a
+        # meson native file or a pkg-config installation. Other meson-python packages
+        # that bypass pkg-config (numpy, scipy) may work without this complication.
         "contourpy",
-        "debugpy",
-        "httptools",
-        "ifcopenshell",
+        # kiwisolver 1.5.0 sdist reports project version 0.0.0 from meson, not 1.5.0.
+        # Pip's strict metadata check rejects the mismatch. Reintroducing this package
+        # needs either a downgrade to 1.4.x in config.json or a per-package
+        # --config-settings override of the version at pip invocation time.
         "kiwisolver",
+        "ifcopenshell",
         "lxml",
-        "numpy",
+        # Pillow 12.x made libjpeg a required dependency with no env-var or build-flag
+        # escape hatch (the previous "reduced support" path was removed). Reintroducing
+        # this package needs libjpeg-turbo as a LibPack C++ package (build_libjpeg in
+        # compile_all.py and an entry in config.json), or a downgrade to pillow 11.x.
         "pillow",
         "pydantic_core",
-        "PyYAML",
         "shapely",
         "watchfiles",
         # Transitively excluded because their hard dependencies are excluded above.
         "fastapi",
         "matplotlib",
-        "nltk",
-        "pycollada",
         "pydantic",
-        "scipy",
     )
 )
 
-# Build-time pure-Python tooling that must be present even when the rest of the requirements
-# list is skipped. setup.py-based packages built later in the LibPack (PySide, opencamlib)
-# import these at build time.
-_DEBUG_BUILD_REQUIRED_TOOLING = ("packaging", "setuptools", "wheel")
+# Build-time tooling that must be present in the LibPack so that pip's --no-build-isolation
+# can resolve PEP 517 build backends locally. setuptools covers most packages; meson-python
+# covers the modern numerical-Python ecosystem (contourpy, numpy, scipy, matplotlib). meson
+# and ninja are the actual build tools meson-python orchestrates; pyproject-metadata is a
+# meson-python dependency.
+_DEBUG_BUILD_REQUIRED_TOOLING = (
+    "packaging",
+    "setuptools",
+    "wheel",
+    "meson-python",
+    "meson",
+    "ninja",
+    "pyproject-metadata",
+    "cppy",
+    "pybind11",
+    "Cython",
+    "pkgconf",
+    "pythran",
+)
 
 # Packages with C extensions that pip must source-build against the debug Python rather
 # than pull from PyPI as a wheel. Windows Py_DEBUG reports both cp3XXd and cp3XX as
 # compatible platform tags, so without --no-binary pip happily picks a release wheel that
 # then fails to load against python_d.exe at runtime. Names match pip's --no-binary syntax.
-_DEBUG_BUILD_FROM_SOURCE = ("regex",)
+_DEBUG_BUILD_FROM_SOURCE = ("regex", "PyYAML", "httptools", "debugpy", "numpy", "scipy")
+
+# Sitecustomize shim installed at <libpack>/bin/Lib/site-packages/sitecustomize.py for
+# Debug LibPacks. Setuptools' build_ext defaults debug=False even when the target Python
+# is Py_DEBUG, so source-built C extensions get the release CRT (/MD, VCRUNTIME140.dll)
+# instead of the debug CRT (/MDd, VCRUNTIME140D.dll, ucrtbased.dll). The mismatch
+# corrupts heap state in any extension that shares allocations across the C/Python
+# boundary. This shim forces self.debug = True for every build_ext invocation when
+# Py_DEBUG is detected via sysconfig. The unconditional warning at the bottom makes
+# silent monkey-patch failure (for example a future setuptools rename) loud rather than
+# silent.
+_SITECUSTOMIZE_DEBUG_SHIM = '''\
+"""Auto-loaded at interpreter startup by site.execsitecustomize().
+
+When this Python is a Py_DEBUG build, force setuptools' build_ext to default
+debug=True so MSVC compiles C extensions with /MDd (debug CRT) and links with
+/DEBUG:FULL. Setuptools does not consult Py_DEBUG; without this shim, source-
+built extensions get the release CRT and silently corrupt heap state in any
+package that shares allocations across the C/Python boundary.
+
+Installed by the FreeCAD LibPack build (compile_all.build_python, Debug mode)."""
+
+import sys
+import sysconfig
+
+if sysconfig.get_config_var("Py_DEBUG"):
+    _patched = False
+    try:
+        from setuptools.command.build_ext import build_ext as _build_ext
+    except ImportError:
+        _build_ext = None
+    if _build_ext is not None:
+        _orig_initialize_options = _build_ext.initialize_options
+
+        def _initialize_options_force_debug(self):
+            _orig_initialize_options(self)
+            self.debug = True
+
+        _build_ext.initialize_options = _initialize_options_force_debug
+        _patched = True
+    if not _patched:
+        sys.stderr.write(
+            "WARNING: FreeCAD LibPack sitecustomize could not patch setuptools build_ext "
+            "to enforce Py_DEBUG compilation. C extensions built in this interpreter will "
+            "use the release CRT and may corrupt heap state.\\n"
+        )
+'''
 
 
 def _requirement_package_name(spec: str) -> str:
@@ -291,6 +358,49 @@ class Compiler:
     def build_nonexistent(self, _=None):
         """Used for automated testing to allow easy Mock injection"""
 
+    def build_openblas(self, _=None):
+        """Build OpenBLAS, providing BLAS and LAPACK for source-built numpy and scipy
+        in Debug mode. Skipped entirely in Release mode because PyPI numpy and scipy
+        wheels bundle their own OpenBLAS in numpy/.libs/, and nothing else in the
+        Release LibPack consumes BLAS.
+
+        Uses the Ninja CMake generator rather than the default Visual Studio generator
+        because (a) the VS generator does not handle Fortran well and OpenBLAS needs
+        Flang for its Fortran sources, and (b) Ninja sidesteps an MSBuild
+        PlatformToolset resolution failure on VS 2026 installs that ship the v143
+        toolset without the matching Microsoft.VCToolsVersion.v143.default.props.
+        Ninja must be on the build host PATH at the time this runs (typically via
+        'pip install ninja' in the system Python, or a manual ninja.exe placement)."""
+        if self.mode != BuildMode.DEBUG:
+            print(
+                "  Skipping OpenBLAS build in Release mode (numpy/scipy use bundled OpenBLAS from wheels)."
+            )
+            return
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "openblas", "cblas.h")):
+                print("  Not rebuilding OpenBLAS, it is already in the LibPack")
+                return
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D BUILD_SHARED_LIBS=ON",
+            # DYNAMIC_ARCH=OFF: with DYNAMIC_ARCH=ON, kernel parameters like
+            # GEMM_UNROLL_MN expand to runtime struct-pointer field accesses
+            # (gotoblas -> ...). OpenBLAS uses those values as array sizes in C
+            # files (driver/level3/zherk_kernel.c, others), which produces VLA
+            # declarations that MSVC's C compiler does not support. In Release the
+            # optimizer constant-folds them; in Debug /Od does not, and the build
+            # fails. A single-arch build resolves the macros to compile-time
+            # constants and side-steps the issue. Debug performance is not a target.
+            "-D DYNAMIC_ARCH=OFF",
+            "-D USE_THREAD=ON",
+            "-D NUM_THREADS=64",
+            "-D BUILD_WITHOUT_LAPACK=OFF",
+            "-D NOFORTRAN=OFF",
+            "-D BUILD_TESTING=OFF",
+        ]
+        self._build_standard_cmake(extra_args=extra_args)
+
     def python_exe(self):
         if self.mode == BuildMode.RELEASE:
             return os.path.join(self.install_dir, "bin", "python") + to_exe()
@@ -477,6 +587,14 @@ class Compiler:
                     os.path.join(bin_dir, f"{versioned}_d.dll"),
                     os.path.join(bin_dir, f"{versioned}.dll"),
                 )
+                site_packages_dir = os.path.join(lib_dir, "site-packages")
+                os.makedirs(site_packages_dir, exist_ok=True)
+                with open(
+                    os.path.join(site_packages_dir, "sitecustomize.py"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(_SITECUSTOMIZE_DEBUG_SHIM)
         else:
             raise NotImplemented("Non-Windows compilation of Python is not implemented yet")
 
@@ -524,6 +642,27 @@ class Compiler:
                 kept.append(tool)
         return kept
 
+    def _install_debug_library_aliases(self):
+        """Create release-named copies of debug-suffixed import libraries so that
+        source-built Python C extensions can find them under their conventional names.
+        Pillow's setup.py looks for 'zlib' and 'libpng16' literally, ignoring CMake's
+        'd' debug suffix; numpy and scipy search for BLAS by similarly fixed names.
+        This is a flat list of known-needed aliases rather than a heuristic sweep,
+        because some legitimate library names happen to end in 'd' for unrelated
+        reasons. Aliases are only created when both the debug source exists and the
+        release target does not."""
+        if self.mode != BuildMode.DEBUG:
+            return
+        aliases = (
+            ("lib/zd.lib", "lib/zlib.lib"),
+            ("lib/libpng16d.lib", "lib/libpng16.lib"),
+        )
+        for src, dst in aliases:
+            src_path = os.path.join(self.install_dir, src)
+            dst_path = os.path.join(self.install_dir, dst)
+            if os.path.exists(src_path) and not os.path.exists(dst_path):
+                shutil.copy(src_path, dst_path)
+
     def _install_python_requirements(self, requirements):
         if self.mode == BuildMode.DEBUG:
             requirements = self._filter_debug_requirements(requirements)
@@ -534,9 +673,78 @@ class Compiler:
             ):
                 print("  Not re-installing Python requirements, they are already in the LibPack")
                 return
+        if self.mode == BuildMode.DEBUG:
+            # The main install below uses --no-build-isolation, which requires PEP 517
+            # build backends (setuptools, meson-python, etc.) to already be present in the
+            # LibPack environment. Pip's resolver is single-pass: it cannot install a
+            # backend in the same install request that needs the backend to fetch metadata
+            # for some other package. Bootstrap the tooling first via a separate pip call
+            # with normal isolated builds (the tooling itself is pure-Python or binary, so
+            # isolation is harmless there).
+            print("  Installing build-time tooling")
+            self._run_pip_install(
+                list(_DEBUG_BUILD_REQUIRED_TOOLING),
+                no_build_isolation=False,
+                no_binary_packages=(),
+            )
+            self._install_debug_library_aliases()
         print("  Installing the following requirements (and their dependencies) using pip:")
         for req in requirements:
             print("    " + req)
+        # meson-python defaults to "-Dbuildtype=release -Db_ndebug=if-release -Db_vscrt=md"
+        # regardless of the target Python's debug-ness. b_vscrt=md forces /MD (release
+        # CRT) independently of buildtype, so overriding only buildtype leaves extensions
+        # linked against VCRUNTIME140.dll. Pass both -Dbuildtype=debug (so meson selects
+        # debug compile flags and no NDEBUG) and -Db_vscrt=mdd (so the linker uses
+        # ucrtbased.dll and VCRUNTIME140D.dll).
+        # blas=openblas / lapack=openblas point numpy at the LibPack-built OpenBLAS;
+        # meson's dependency() finds it via pkg-config (PKG_CONFIG_PATH) or CMake
+        # (CMAKE_PREFIX_PATH), both set in the subprocess env above.
+        config_settings = (
+            (
+                ("setup-args", "-Dbuildtype=debug"),
+                ("setup-args", "-Db_vscrt=mdd"),
+                ("setup-args", "-Dblas=openblas"),
+                ("setup-args", "-Dlapack=openblas"),
+                # cpp_std=c++17 is required for pythran-generated C++ in scipy. Pythran's
+                # generated headers still use std::result_of_t, which C++20 removed.
+                # MSVC's default standard is newer than C++17 in current toolsets, so we
+                # pin it explicitly. Numpy's own meson.build already pins c++17, so this
+                # change is a no-op for numpy and a fix for scipy.
+                ("setup-args", "-Dcpp_std=c++17"),
+            )
+            if self.mode == BuildMode.DEBUG
+            else ()
+        )
+        # Scipy needs an extra meson option that other meson-python projects (numpy in
+        # particular) reject as unknown. Pull it out for a separate pip pass.
+        scipy_specs: list = []
+        if self.mode == BuildMode.DEBUG:
+            scipy_specs = [r for r in requirements if _requirement_package_name(r) == "scipy"]
+            if scipy_specs:
+                requirements = [r for r in requirements if _requirement_package_name(r) != "scipy"]
+        self._run_pip_install(
+            requirements,
+            no_build_isolation=(self.mode == BuildMode.DEBUG),
+            no_binary_packages=(_DEBUG_BUILD_FROM_SOURCE if self.mode == BuildMode.DEBUG else ()),
+            config_settings=config_settings,
+        )
+        if scipy_specs:
+            print("  Installing scipy with use-pythran=false")
+            self._run_pip_install(
+                scipy_specs,
+                no_build_isolation=True,
+                no_binary_packages=("scipy",),
+                # Pythran 0.18 headers fail to compile under MSVC for scipy's
+                # pythran-translated modules (a ref-qualifier overload mismatch in
+                # ndarray.hpp). Disabling pythran skips those modules; scipy provides
+                # pure-Python fallbacks for each.
+                config_settings=config_settings + (("setup-args", "-Duse-pythran=false"),),
+            )
+
+    def _run_pip_install(
+        self, requirements, no_build_isolation, no_binary_packages, config_settings=()
+    ):
         path_to_python = self.python_exe()
         pip_args = [
             path_to_python,
@@ -547,16 +755,45 @@ class Compiler:
             "--ignore-installed",
             "--no-warn-script-location",
         ]
-        if self.mode == BuildMode.DEBUG:
-            for pkg in _DEBUG_BUILD_FROM_SOURCE:
-                pip_args.extend(["--no-binary", pkg])
+        if no_build_isolation:
+            pip_args.append("--no-build-isolation")
+        for pkg in no_binary_packages:
+            pip_args.extend(["--no-binary", pkg])
+        for key, value in config_settings:
+            pip_args.append(f"--config-settings={key}={value}")
         pip_args.extend(requirements)
         if self.mode == BuildMode.DEBUG:
             # Source-built C extensions need MSVC visible. Source vcvars first and tell
             # setuptools to trust the existing SDK env instead of auto-detecting compilers.
+            # Also expose the LibPack's Scripts directory on PATH so build backends like
+            # meson-python can find the meson and ninja executables that were installed
+            # alongside their Python packages, and prepend the LibPack's include and lib
+            # directories to INCLUDE and LIB so packages built against LibPack-bundled
+            # C/C++ libraries (pillow against libpng, zlib, freetype, for example) find
+            # their headers and import libs.
             env = os.environ.copy()
             env["DISTUTILS_USE_SDK"] = "1"
             env["MSSdk"] = "1"
+            scripts_dir = os.path.join(self.install_dir, "bin", "Scripts")
+            bin_dir = os.path.join(self.install_dir, "bin")
+            env["PATH"] = scripts_dir + os.pathsep + bin_dir + os.pathsep + env.get("PATH", "")
+            include_dir = os.path.join(self.install_dir, "include")
+            python_include_dir = os.path.join(self.install_dir, "bin", "Include")
+            lib_dir = os.path.join(self.install_dir, "lib")
+            python_lib_dir = os.path.join(self.install_dir, "bin", "libs")
+            env["INCLUDE"] = (
+                include_dir + os.pathsep + python_include_dir + os.pathsep + env.get("INCLUDE", "")
+            )
+            env["LIB"] = lib_dir + os.pathsep + python_lib_dir + os.pathsep + env.get("LIB", "")
+            # Tell pkg-config and CMake where to find LibPack-installed packages so meson's
+            # dependency() resolves OpenBLAS (and any future LibPack-bundled lib) by either
+            # method. pkg-config is the preferred lookup for numpy and scipy; CMake is the
+            # fallback meson tries when pkg-config does not find a match.
+            pkgconfig_dir = os.path.join(self.install_dir, "lib", "pkgconfig")
+            env["PKG_CONFIG_PATH"] = pkgconfig_dir + os.pathsep + env.get("PKG_CONFIG_PATH", "")
+            env["CMAKE_PREFIX_PATH"] = (
+                self.install_dir + os.pathsep + env.get("CMAKE_PREFIX_PATH", "")
+            )
             call_args = [*self.init_script, "&", *pip_args]
         else:
             env = None
