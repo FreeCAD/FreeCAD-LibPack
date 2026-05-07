@@ -115,36 +115,51 @@ def create_libpack_dir(config: dict, mode: compile_all.BuildMode) -> str:
     return dirname
 
 
-def fetch_remote_data(config: dict, skip_existing: bool = False):
-    """Clone the required repos and download the URLs"""
+def _select_url(item: dict) -> str | None:
+    if "url" in item:
+        return item["url"]
+    if platform.machine() == "ARM64" and "url-ARM64" in item:
+        return item["url-ARM64"]
+    if "url-x64" in item:
+        return item["url-x64"]
+    return None
+
+
+def fetch_remote_data(config: dict, mode: compile_all.BuildMode, skip_existing: bool = False):
+    """Clone the required repos and download the URLs.
+
+    Entries that provide both a `git-repo` and a `url-*` are treated as hybrid:
+    Debug builds clone the source (so the package can be built locally against
+    the Py_DEBUG ABI), Release builds prefer the prebuilt URL, and if no URL
+    matches the current architecture nothing is fetched (the build step is
+    expected to handle the package some other way, e.g. via pip)."""
     content = config["content"]
+    is_debug = mode == compile_all.BuildMode.DEBUG
     for item in content:
         if skip_existing and os.path.exists(item["name"]):
             continue
-        if "git-repo" in item:
+        has_git = "git-repo" in item
+        has_any_url = any(k in item for k in ("url", "url-ARM64", "url-x64"))
+        url = _select_url(item)
+        if ("git-ref" in item or "git-hash" in item) and not has_git:
+            print(f"ERROR: found a git ref/hash without a git repo for {item['name']}")
+            exit()
+        if has_git and (not has_any_url or is_debug):
             clone(
                 item["name"],
                 item["git-repo"],
-                item["git-ref"] if "git-ref" in item else None,
-                item["git-hash"] if "git-hash" in item else None,
+                item.get("git-ref"),
+                item.get("git-hash"),
             )
-        elif "git-ref" in item or "git-hash" in item:
-            print(f"ERROR: found a git ref/hash without a git repo for {item['name']}")
-            exit()
-        elif "url" in item:
-            download(item["name"], item["url"])
-        elif "url-ARM64" in item and platform.machine() == "ARM64":
-            download(item["name"], item["url-ARM64"])
-        elif "url-x64" in item and platform.machine() == "AMD64":
-            download(item["name"], item["url-x64"])
+            if "patches" in item:
+                cwd = os.getcwd()
+                os.chdir(item["name"])
+                compile_all.patch_files(item["patches"])
+                os.chdir(cwd)
+        elif url is not None:
+            download(item["name"], url)
         else:
-            # Just make the directory, presumably later code will know what to do
             os.makedirs(item["name"], exist_ok=True)
-        if "patches" in item:
-            cwd = os.getcwd()
-            os.chdir(item["name"])
-            compile_all.patch_files(item["patches"])
-            os.chdir(cwd)
 
 
 def clone(name: str, url: str, ref: str = None, hash: str = None):
@@ -447,7 +462,7 @@ if __name__ == "__main__":
     else:
         base = create_libpack_dir(config_dict, mode)
     with prevent_sleep_mode():
-        fetch_remote_data(config_dict, args["no_skip_existing_clone"])
+        fetch_remote_data(config_dict, mode, args["no_skip_existing_clone"])
 
         compiler = compile_all.Compiler(
             config_dict,

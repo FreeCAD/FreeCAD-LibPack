@@ -1,0 +1,9 @@
+@@@ cmake/CMakeLists.txt @@@
+@@ -17784,32 +17784,34 @@
+ TER 66))%0A       
++ #
+  add_definitions
+@@ -17824,16 +17824,46 @@
+ issive-)
++ # disabled by FreeCAD LibPack
+ %0A    end
