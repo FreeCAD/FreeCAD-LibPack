@@ -135,7 +135,7 @@ def fetch_remote_data(config: dict, skip_existing: bool = False):
             download(item["name"], item["url"])
         elif "url-ARM64" in item and platform.machine() == "ARM64":
             download(item["name"], item["url-ARM64"])
-        elif "url-x64" in item:
+        elif "url-x64" in item and platform.machine() == "AMD64":
             download(item["name"], item["url-x64"])
         else:
             # Just make the directory, presumably later code will know what to do

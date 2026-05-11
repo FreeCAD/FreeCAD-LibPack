@@ -91,6 +91,11 @@
             "fallback-build-dir": "G:\\temp"
         },
         {
+            "name": "opengl32sw",
+            "url-x64": "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_6110/qt6_6110_msvc2022_64/qt.qt6.6110.win64_msvc2022_64/6.11.0-0-202603180535opengl32sw-64-mesa_11_2_2-signed_sha256.7z",
+            "note": "Mesa-based software OpenGL fallback shipped by The Qt Company alongside their precompiled Qt binaries. Required at runtime on systems whose GPU or driver only exposes OpenGL 1.x (common on Windows VMs without GPU passthrough). Qt's from-source build does not produce this DLL, so the LibPack pulls the precompiled file directly from Qt's online installer CDN. The exact archive filename embeds a build timestamp and changes when Qt rebuilds the package; if the URL stops resolving, locate the current archive under the same Updates.xml path. No equivalent prebuilt is published for Windows on ARM64; ARM64 builds skip this entry entirely (see build_opengl32sw)."
+        },
+        {
             "name":"bzip2",
             "git-repo":"https://gitlab.com/bzip2/bzip2.git",
             "git-ref":"bzip2-1.0.8"
