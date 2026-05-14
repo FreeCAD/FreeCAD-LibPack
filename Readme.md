@@ -9,7 +9,7 @@ As of May 2026, the LibPack is designed to work with FreeCAD 1.2dev, and is avai
 The current LibPack, v3.4, is tested to work with [Microsoft Visual Studio](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B) version 17.14.* (MSVC 143). Visual Studio 2026 may also be used as long as the MSVC v143 toolchain is installed by selecting the v143 toolset via the `--vcvars-ver=14.4` argument to the build script. Note the version numbering is odd: "v143" does in fact correspond to version 14.4. The Debug LibPack is built with `--mode=debug`, produces a `Py_DEBUG` CPython, and source-builds every C extension in the pip set against the `cp3XXd` ABI.
 
 To compile FreeCAD, you will need FreeCAD's source code from the [FreeCAD repository](https://github.com/FreeCAD/FreeCAD). In general, to compile with the LibPack, you will run CMake (either via the GUI or on the command line) and set the following variables:
- * `-D FREECAD_LIBPACK_DIR="C:/Path/To/The/LibPack-1.2.0-v3.4.0-Release"`
+ * `-D FREECAD_LIBPACK_DIR="C:/Path/To/The/LibPack-1.2.0-v3.4.0-x64-Release"`
  * `-D FREECAD_COPY_LIBPACK_BIN_TO_BUILD=ON`
  * `-D FREECAD_COPY_DEPEND_DIRS_TO_BUILD=ON`
  * `-D FREECAD_COPY_PLUGINS_BIN_TO_BUILD=ON`
@@ -55,10 +55,10 @@ python.exe create_libpack [arguments]
 Arguments:
 * `-m`, `--mode` -- 'release' or 'debug' (Default: 'release'). Debug builds Py_DEBUG CPython and source-builds the pip set; expect a substantially longer wall-clock time than Release.
 * `-c`, `--config` -- Path to a JSON configuration file for this utility (Default: './config.json')
-* `-w`, `--working` -- Directory to put all the clones and downloads in (Default: './working')
 * `-e`, `--no-skip-existing-clone` -- If a given clone (or download) directory exists, delete it and download it again
 * `-b`, `--no-skip-existing-build` -- If a given build already exists, run the build process again anyway
 * `-s`, `--silent` -- I kow what I'm doing, don't ask me any questions
+* `-z`, `--archive` -- After the build completes, compress the finished LibPack directory into a sibling `.7z` archive suitable for distribution.
 * `--7zip` -- Path to 7-zip executable if not in PATH
 * `--bison` -- Path to Bison executable if not in PATH
 * `--vs-version` -- Visual Studio toolchain to build with. Accepts `latest` (default), `2022`, `2026`, or a raw `vswhere` `-version` range such as `[17.0,18.0)`.

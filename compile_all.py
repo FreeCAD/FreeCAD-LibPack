@@ -231,11 +231,27 @@ def patch_files(patches: List[str]) -> None:
         apply_patch(patch)
 
 
+def libpack_arch_label() -> str:
+    """Architecture suffix used in the LibPack directory and archive names.
+    'x64' for Windows AMD64 and 'ARM64' for Windows on ARM, matching the
+    convention used elsewhere in the build."""
+    return "x64" if platform.machine() == "AMD64" else "ARM64"
+
+
+def working_dir_name(mode: BuildMode) -> str:
+    """Per-mode working directory name, allowing a Debug build and a Release build
+    to coexist side-by-side instead of stomping on each other's clones and builds."""
+    return "working-" + str(mode).lower()
+
+
 def libpack_dir(config: dict, mode: BuildMode):
-    lp_dir = "LibPack-{}-v{}-{}".format(
-        config["FreeCAD-version"], config["LibPack-version"], str(mode)
+    lp_dir = "LibPack-{}-v{}-{}-{}".format(
+        config["FreeCAD-version"],
+        config["LibPack-version"],
+        libpack_arch_label(),
+        str(mode),
     )
-    return os.path.join(os.path.dirname(__file__), "working", lp_dir)
+    return os.path.join(os.path.dirname(__file__), working_dir_name(mode), lp_dir)
 
 
 def to_exe(base: str = ""):
