@@ -1,0 +1,13 @@
+@@@ CMakeLists.txt @@@
+@@ -12834,24 +12834,42 @@
+ ORTRAN)%0Aif (
++BUILD_TESTING AND 
+ NOT NO_CBLAS
+@@ -12972,24 +12972,42 @@
+ ndif()%0A%0Aif (
++BUILD_TESTING AND 
+ NOT NOFORTRA
+@@ -13205,16 +13205,34 @@
+ ()%0A  if(
++BUILD_TESTING AND 
+ NOT NO_C

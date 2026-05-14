@@ -3,6 +3,39 @@
     "LibPack-version":"3.4.0",
     "content": [
         {
+            "name":"libiconv",
+            "git-repo":"https://github.com/win-iconv/win-iconv",
+            "git-ref":"v0.0.8",
+            "note": "Debug-only package. lxml's setup.py hardcodes 'iconv' in its Windows link line regardless of STATIC_DEPS or libxml2 configuration. We disable iconv in libxml2 (LIBXML2_WITH_ICONV=OFF) so nothing actually calls iconv functions, but lxml still requires iconv.lib at link time. win-iconv is a small Windows-targeted implementation that satisfies the link without bloat. Release uses lxml's PyPI wheel which bundles iconv internally."
+        },
+        {
+            "name":"libxml2",
+            "git-repo":"https://github.com/GNOME/libxml2",
+            "git-ref":"v2.13.5",
+            "note": "Debug-only package. Source-built so that lxml has a libxml2 to link against under Py_DEBUG. Release uses lxml's PyPI wheel which bundles libxml2 internally."
+        },
+        {
+            "name":"libxslt",
+            "git-repo":"https://github.com/GNOME/libxslt",
+            "git-ref":"v1.1.42",
+            "note": "Debug-only package. Depends on libxml2 above. Release uses lxml's bundled libxslt."
+        },
+        {
+            "name":"libjpeg",
+            "git-repo":"https://github.com/libjpeg-turbo/libjpeg-turbo",
+            "git-ref":"3.0.4",
+            "note": "Debug-only package. In Release mode build_libjpeg returns early because PyPI Pillow wheels bundle their own libjpeg. In Debug mode this provides the libjpeg API that source-built Pillow links against."
+        },
+        {
+            "name":"openblas",
+            "git-repo":"https://github.com/OpenMathLib/OpenBLAS",
+            "git-ref":"v0.3.28",
+            "patches": [
+                "patches/openblas-01-honor-build-testing.patch"
+            ],
+            "note": "Debug-only package. In Release mode build_openblas returns early because PyPI numpy and scipy wheels bundle their own OpenBLAS in numpy/.libs/. In Debug mode this provides the BLAS+LAPACK that source-built numpy and scipy link against."
+        },
+        {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
             "git-ref":"v3.14.4",
@@ -195,7 +228,9 @@
             "git-repo":"https://github.com/NGSolve/netgen",
             "git-ref":"v6.2.2604",
             "patches":[
-                "patches/netgen-02-arm64-msvc-time-counter.patch"
+                "patches/netgen-02-arm64-msvc-time-counter.patch",
+                "patches/netgen-03-msvc-runtime-debug-aware.patch",
+                "patches/netgen-04-tbitarray-or-inline-no-export.patch"
             ]
         },
         {
@@ -264,8 +299,15 @@
         },
         {
             "name": "ifcopenshell",
+            "git-repo": "https://github.com/IfcOpenShell/IfcOpenShell.git",
+            "git-ref": "ifcopenshell-python-0.8.5",
             "url-ARM64": "https://s3.amazonaws.com/ifcopenshell-builds/ifcopenshell-python-314-v0.8.5-18c035e-win-arm64.zip",
-            "note": "x64 is installed via pip from PyPI; ARM64 has no PyPI wheel, so we extract the prebuilt zip from builds.ifcopenshell.org. Both architectures are pinned to v0.8.5."
+            "patches": [
+                "patches/ifcopenshell-01-disable-permissive.patch",
+                "patches/ifcopenshell-02-profile-point-msvc-fix.patch",
+                "patches/ifcopenshell-03-opaquecoordinate-sfinae.patch"
+            ],
+            "note": "Release x64 is installed via pip from PyPI and ignores both source and zip. Release ARM64 has no PyPI wheel, so we extract the prebuilt zip from builds.ifcopenshell.org. Debug source-builds from the GitHub clone because no prebuilt cp314d artifact exists. fetch_remote_data treats this hybrid entry as: clone in Debug, download zip in Release on ARM64, do nothing in Release on x64. Patches only apply on the clone path, so the prebuilt zip is left untouched. All three paths target v0.8.5."
         }
     ]
 }

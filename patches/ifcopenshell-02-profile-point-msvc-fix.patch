@@ -1,0 +1,22 @@
+@@@ src/ifcgeom/profile_helper.h @@@
+@@ -67,16 +67,37 @@
+ omy.h%22%0A%0A
++#include %3Coptional%3E%0A%0A
+ namespac
+@@ -197,167 +197,37 @@
+ %0A%09%09%09
+-boost::optional%3Cdouble%3E radius;%0A%0A%09%09%09profile_point(const std::array%3Cdouble, 2%3E& p, const boost::optional%3Cdouble%3E& r = boost::none)%0A%09%09%09%09: xy(p), radius(r) %7B%0A%09%09%09%7D
++std::optional%3Cdouble%3E radius;
+ %0A%09%09%7D
+@@ -283,37 +283,35 @@
+ Vector2d xy;%0A%09%09%09
+-boo
+ st
++d
+ ::optional%3Cdoubl
+@@ -435,13 +435,11 @@
+ %0A%09%09%09
+-boo
+ st
++d
+ ::op

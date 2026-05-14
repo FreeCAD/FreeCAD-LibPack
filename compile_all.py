@@ -9,6 +9,7 @@ from diff_match_patch import diff_match_patch
 from typing import Dict, List, Optional, Tuple
 
 from enum import Enum
+import glob
 import os
 import pathlib
 import platform
@@ -17,6 +18,146 @@ import shutil
 import subprocess
 import stat
 import sys
+
+# Pip requirements skipped in Debug mode because their PyPI distribution is a release-ABI
+# wheel (cp3XX) that cannot install against the Py_DEBUG (cp3XXd) interpreter. These will
+# be source-built against the debug Python in a later phase (debug_build_plan.md Phase 3).
+# Names are matched case-insensitively against the package portion of each requirement
+# specifier in config.json. Trim this set as each package gains a working source-build.
+_DEBUG_BUILD_EXCLUDED_REQUIREMENTS = frozenset(
+    name.lower()
+    for name in (
+        # Direct C/C++/Fortran/Rust extensions with no pure-Python distribution.
+        "cmake",
+        "cog",
+        "ifcopenshell",
+        "shapely",
+    )
+)
+
+# Build-time tooling that must be present in the LibPack so that pip's --no-build-isolation
+# can resolve PEP 517 build backends locally. setuptools covers most packages; meson-python
+# covers the modern numerical-Python ecosystem (contourpy, numpy, scipy, matplotlib). meson
+# and ninja are the actual build tools meson-python orchestrates; pyproject-metadata is a
+# meson-python dependency.
+_DEBUG_BUILD_REQUIRED_TOOLING = (
+    "packaging",
+    "setuptools",
+    "wheel",
+    "meson-python",
+    "meson",
+    "ninja",
+    "pyproject-metadata",
+    "cppy",
+    "pybind11",
+    "Cython",
+    "pkgconf",
+    "pythran",
+    "setuptools_scm",
+    "maturin",
+)
+
+# Packages with C extensions that pip must source-build against the debug Python rather
+# than pull from PyPI as a wheel. Windows Py_DEBUG reports both cp3XXd and cp3XX as
+# compatible platform tags, so without --no-binary pip happily picks a release wheel that
+# then fails to load against python_d.exe at runtime. Names match pip's --no-binary syntax.
+_DEBUG_BUILD_FROM_SOURCE = (
+    "regex",
+    "PyYAML",
+    "httptools",
+    "debugpy",
+    "numpy",
+    "scipy",
+    "contourpy",
+    "kiwisolver",
+    "pillow",
+    "matplotlib",
+    "pydantic_core",
+    "watchfiles",
+    "lxml",
+)
+
+# Sitecustomize shim installed at <libpack>/bin/Lib/site-packages/sitecustomize.py for
+# Debug LibPacks. Setuptools' build_ext defaults debug=False even when the target Python
+# is Py_DEBUG, so source-built C extensions get the release CRT (/MD, VCRUNTIME140.dll)
+# instead of the debug CRT (/MDd, VCRUNTIME140D.dll, ucrtbased.dll). The mismatch
+# corrupts heap state in any extension that shares allocations across the C/Python
+# boundary. This shim forces self.debug = True for every build_ext invocation when
+# Py_DEBUG is detected via sysconfig. The unconditional warning at the bottom makes
+# silent monkey-patch failure (for example a future setuptools rename) loud rather than
+# silent.
+_SITECUSTOMIZE_DEBUG_SHIM = '''\
+"""Auto-loaded at interpreter startup by site.execsitecustomize().
+
+When this Python is a Py_DEBUG build, force setuptools' build_ext to default
+debug=True so MSVC compiles C extensions with /MDd (debug CRT) and links with
+/DEBUG:FULL. Setuptools does not consult Py_DEBUG; without this shim, source-
+built extensions get the release CRT and silently corrupt heap state in any
+package that shares allocations across the C/Python boundary.
+
+Installed by the FreeCAD LibPack build (compile_all.build_python, Debug mode)."""
+
+import sys
+import sysconfig
+
+if sysconfig.get_config_var("Py_DEBUG"):
+    _patched_build_ext = False
+    _patched_msvc = False
+    try:
+        from setuptools.command.build_ext import build_ext as _build_ext
+    except ImportError:
+        _build_ext = None
+    if _build_ext is not None:
+        _orig_initialize_options = _build_ext.initialize_options
+
+        def _initialize_options_force_debug(self):
+            _orig_initialize_options(self)
+            self.debug = True
+
+        _build_ext.initialize_options = _initialize_options_force_debug
+        _patched_build_ext = True
+
+    try:
+        from setuptools._distutils import _msvccompiler as _msvc
+    except ImportError:
+        try:
+            import distutils._msvccompiler as _msvc
+        except ImportError:
+            _msvc = None
+    if _msvc is not None:
+        _orig_msvc_initialize = _msvc.MSVCCompiler.initialize
+
+        def _initialize_with_fs(self, plat_name=None):
+            _orig_msvc_initialize(self, plat_name)
+            # Replace /Zi with /Z7 so debug info is embedded in each .obj rather than
+            # written to a shared per-directory .pdb. /FS via mspdbsrv is the documented
+            # fix for the parallel-build PDB race, but in pip-driven builds (notably
+            # pillow's parallel-compile setup.py) it does not always reach all child
+            # cl.exe instances. /Z7 sidesteps the race entirely by removing the shared
+            # writer. The linker still produces a per-extension .pdb at link time.
+            for options in (self.compile_options_debug, self.compile_options):
+                while "/Zi" in options:
+                    options[options.index("/Zi")] = "/Z7"
+                if "/FS" not in options:
+                    options.append("/FS")
+
+        _msvc.MSVCCompiler.initialize = _initialize_with_fs
+        _patched_msvc = True
+
+    if not (_patched_build_ext and _patched_msvc):
+        sys.stderr.write(
+            "WARNING: FreeCAD LibPack sitecustomize could not fully patch setuptools/MSVC "
+            "for Py_DEBUG compilation. C extensions built in this interpreter may use "
+            "the release CRT or race on parallel PDB writes.\\n"
+        )
+'''
+
+
+def _requirement_package_name(spec: str) -> str:
+    """Extract the lowercased package name from a pip requirement specifier such as
+    'numpy==2.4.4' or 'shapely==2.1.2; platform_machine != "ARM64"'."""
+    match = re.match(r"\s*([A-Za-z0-9_.-]+)", spec)
+    return match.group(1).lower() if match else ""
 
 
 class BuildMode(Enum):
@@ -180,13 +321,21 @@ class Compiler:
             f"-D Python_DIR={self.install_dir}/bin",
             f"-D Python3_ROOT_DIR={self.install_dir}/bin",
             f"-D Python3_DIR={self.install_dir}/bin",
+            f"-D Python_EXECUTABLE={self.python_exe()}",
+            f"-D Python3_EXECUTABLE={self.python_exe()}",
             "-D Python_FIND_REGISTRY=NEVER",
+            "-D Python3_FIND_REGISTRY=NEVER",
             f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + to_exe(),
             f"-D ZLIB_DIR={self.install_dir}/lib/cmake/",
             "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",
             # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
+        if self.mode == BuildMode.DEBUG:
+            python_lib = self._python_lib_path()
+            if python_lib:
+                base.append(f"-D Python_LIBRARY={python_lib}")
+                base.append(f"-D Python3_LIBRARY={python_lib}")
         if self.boost_include_path:
             base.append(f"-D Boost_INCLUDE_DIR={self.boost_include_path}")
         if self.coin_cmake_path:
@@ -195,7 +344,9 @@ class Compiler:
             if platform.machine() == "ARM64":
                 base.append("-A ARM64")
             inc_path = self.install_dir.replace("\\", "/")
-            cxx_flags = f"/I{inc_path}/include /EHsc  /DWIN32 /DWIN64 /DNOMINMAX"
+            cxx_flags = (
+                f"/I{inc_path}/include /EHsc /FS /DWIN32 /DWIN64 /DNOMINMAX /DPy_NO_LINK_LIB"
+            )
             if self.strict_mode:
                 # NOTE: /permissive- is required with Qt6 but could be disabled for anything that doesn't link against
                 # Qt. The same is true for /Zc:__cplusplus /std:c++20
@@ -230,10 +381,165 @@ class Compiler:
     def build_nonexistent(self, _=None):
         """Used for automated testing to allow easy Mock injection"""
 
+    def build_libiconv(self, _=None):
+        """Build win-iconv, a small Windows-targeted libiconv implementation. Provides
+        iconv.lib for source-built lxml in Debug mode. Skipped entirely in Release mode
+        because PyPI lxml wheels bundle their own iconv."""
+        if self.mode != BuildMode.DEBUG:
+            print("  Skipping libiconv build in Release mode (lxml wheel bundles its own iconv).")
+            return
+        if self.skip_existing:
+            sentinel = os.path.join(self.install_dir, "include", "iconv.h")
+            if os.path.exists(sentinel):
+                print("  Not rebuilding libiconv, it is already in the LibPack")
+                return
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D BUILD_SHARED_LIBS=ON",
+            "-D BUILD_TEST=OFF",
+        ]
+        self._build_standard_cmake(extra_args=extra_args)
+
+    def build_libxml2(self, _=None):
+        """Build libxml2, providing the XML parser and tree API for source-built lxml in
+        Debug mode. Skipped entirely in Release mode because PyPI lxml wheels bundle
+        their own libxml2.
+
+        Uses the Ninja CMake generator for the same reason as the other Debug-only C
+        packages."""
+        if self.mode != BuildMode.DEBUG:
+            print("  Skipping libxml2 build in Release mode (lxml wheel bundles its own libxml2).")
+            return
+        if self.skip_existing:
+            sentinel = os.path.join(
+                self.install_dir, "include", "libxml2", "libxml", "xmlversion.h"
+            )
+            if os.path.exists(sentinel):
+                print("  Not rebuilding libxml2, it is already in the LibPack")
+                return
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D BUILD_SHARED_LIBS=ON",
+            "-D LIBXML2_WITH_PYTHON=OFF",
+            "-D LIBXML2_WITH_TESTS=OFF",
+            "-D LIBXML2_WITH_ICONV=OFF",
+            "-D LIBXML2_WITH_LZMA=OFF",
+        ]
+        self._build_standard_cmake(extra_args=extra_args)
+
+    def build_libxslt(self, _=None):
+        """Build libxslt, providing the XSLT engine for source-built lxml in Debug
+        mode. Depends on libxml2 above. Skipped entirely in Release mode because PyPI
+        lxml wheels bundle their own libxslt."""
+        if self.mode != BuildMode.DEBUG:
+            print("  Skipping libxslt build in Release mode (lxml wheel bundles its own libxslt).")
+            return
+        if self.skip_existing:
+            sentinel = os.path.join(self.install_dir, "include", "libxslt", "xslt.h")
+            if os.path.exists(sentinel):
+                print("  Not rebuilding libxslt, it is already in the LibPack")
+                return
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D BUILD_SHARED_LIBS=ON",
+            "-D LIBXSLT_WITH_PYTHON=OFF",
+            "-D LIBXSLT_WITH_TESTS=OFF",
+        ]
+        self._build_standard_cmake(extra_args=extra_args)
+
+    def build_libjpeg(self, _=None):
+        """Build libjpeg-turbo, providing the libjpeg API for source-built Pillow in
+        Debug mode. Skipped entirely in Release mode because PyPI Pillow wheels bundle
+        their own libjpeg, and nothing else in the Release LibPack consumes libjpeg.
+
+        Uses the Ninja CMake generator for the same reason as OpenBLAS: it sidesteps
+        the v143 PlatformToolset resolution failure that the default Visual Studio
+        generator hits on VS 2026 installs missing the
+        Microsoft.VCToolsVersion.v143.default.props file."""
+        if self.mode != BuildMode.DEBUG:
+            print(
+                "  Skipping libjpeg-turbo build in Release mode (Pillow wheel bundles its own libjpeg)."
+            )
+            return
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "jpeglib.h")):
+                print("  Not rebuilding libjpeg-turbo, it is already in the LibPack")
+                return
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D ENABLE_SHARED=ON",
+            "-D ENABLE_STATIC=OFF",
+            "-D WITH_TURBOJPEG=ON",
+            "-D BUILD_TESTING=OFF",
+        ]
+        self._build_standard_cmake(extra_args=extra_args)
+
+    def build_openblas(self, _=None):
+        """Build OpenBLAS, providing BLAS and LAPACK for source-built numpy and scipy
+        in Debug mode. Skipped entirely in Release mode because PyPI numpy and scipy
+        wheels bundle their own OpenBLAS in numpy/.libs/, and nothing else in the
+        Release LibPack consumes BLAS.
+
+        Uses the Ninja CMake generator rather than the default Visual Studio generator
+        because (a) the VS generator does not handle Fortran well and OpenBLAS needs
+        Flang for its Fortran sources, and (b) Ninja sidesteps an MSBuild
+        PlatformToolset resolution failure on VS 2026 installs that ship the v143
+        toolset without the matching Microsoft.VCToolsVersion.v143.default.props.
+        Ninja must be on the build host PATH at the time this runs (typically via
+        'pip install ninja' in the system Python, or a manual ninja.exe placement)."""
+        if self.mode != BuildMode.DEBUG:
+            print(
+                "  Skipping OpenBLAS build in Release mode (numpy/scipy use bundled OpenBLAS from wheels)."
+            )
+            return
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "openblas", "cblas.h")):
+                print("  Not rebuilding OpenBLAS, it is already in the LibPack")
+                return
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D BUILD_SHARED_LIBS=ON",
+            # DYNAMIC_ARCH=OFF: with DYNAMIC_ARCH=ON, kernel parameters like
+            # GEMM_UNROLL_MN expand to runtime struct-pointer field accesses
+            # (gotoblas -> ...). OpenBLAS uses those values as array sizes in C
+            # files (driver/level3/zherk_kernel.c, others), which produces VLA
+            # declarations that MSVC's C compiler does not support. In Release the
+            # optimizer constant-folds them; in Debug /Od does not, and the build
+            # fails. A single-arch build resolves the macros to compile-time
+            # constants and side-steps the issue. Debug performance is not a target.
+            "-D DYNAMIC_ARCH=OFF",
+            "-D USE_THREAD=ON",
+            "-D NUM_THREADS=64",
+            "-D BUILD_WITHOUT_LAPACK=OFF",
+            "-D NOFORTRAN=OFF",
+            "-D BUILD_TESTING=OFF",
+        ]
+        self._build_standard_cmake(extra_args=extra_args)
+
     def python_exe(self):
         if self.mode == BuildMode.RELEASE:
             return os.path.join(self.install_dir, "bin", "python") + to_exe()
         return os.path.join(self.install_dir, "bin", "python_d") + to_exe()
+
+    def _python_lib_path(self) -> Optional[str]:
+        """Locate the versioned Python import library in the LibPack libs directory,
+        for example python314.lib (release) or python314_d.lib (debug). Returns None
+        if the libs directory or matching file does not yet exist, which is expected
+        before build_python has run."""
+        libs_dir = os.path.join(self.install_dir, "bin", "libs")
+        if not os.path.isdir(libs_dir):
+            return None
+        suffix = "_d" if self.mode == BuildMode.DEBUG else ""
+        pattern = re.compile(rf"^python\d{{2,}}{re.escape(suffix)}\.lib$")
+        for name in os.listdir(libs_dir):
+            if pattern.match(name):
+                return os.path.join(libs_dir, name)
+        return None
 
     def _python_build_env(self):
         """Environment for the host Python that PCbuild\\build.bat -e launches to fetch
@@ -256,7 +562,7 @@ class Compiler:
 
     def build_python(self, args=None):
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "bin", "DLLs")):
+            if os.path.exists(self.python_exe()):
                 print("  Not rebuilding Python, it is already in the LibPack")
                 return
         if sys.platform.startswith("win32"):
@@ -349,9 +655,10 @@ class Compiler:
                 shutil.copytree(f"Tools\\{sub}", os.path.join(tools_dir, sub), dirs_exist_ok=True)
 
             # Figure out what version of Python we just built:
-            major, minor = self.get_python_version(
-                os.path.join("PCBuild", path, "python.exe")
-            ).split(".")
+            exe_name = "python.exe" if self.mode == BuildMode.RELEASE else "python_d.exe"
+            major, minor = self.get_python_version(os.path.join("PCBuild", path, exe_name)).split(
+                "."
+            )
 
             # Construct the list of files we expect to exist that need to be placed in the toplevel directory, or in
             # libs:
@@ -383,6 +690,54 @@ class Compiler:
                 os.unlink(target)
             print(f"Copying {pyconfig} to {target}")
             shutil.copyfile(pyconfig, target)
+            if self.mode == BuildMode.DEBUG:
+                # FindPython on Windows searches for the release-named library and runtime
+                # DLL independently of any debug-variant hint. Without same-named files in
+                # the LibPack the search escapes to a system Python install and downstream
+                # find_dependency(Python COMPONENTS Development) calls (boost_python's
+                # installed config) reject Development.Embed because the debug library and
+                # release runtime resolve to different installs. Same-content release-named
+                # copies keep every component lookup inside the LibPack.
+                versioned = f"python{major}{minor}"
+                shutil.copy(
+                    os.path.join(libs_dir, f"{versioned}_d.lib"),
+                    os.path.join(libs_dir, f"{versioned}.lib"),
+                )
+                shutil.copy(
+                    os.path.join(bin_dir, f"{versioned}_d.dll"),
+                    os.path.join(bin_dir, f"{versioned}.dll"),
+                )
+                # FreeCAD's CMake (and CMake's own FindPython) searches for python.exe
+                # and pythonw.exe by their release names. Provide same-content copies
+                # next to the debug-suffixed originals so downstream consumers find a
+                # Python executable inside the LibPack instead of escaping to a system
+                # install with a different ABI.
+                for exe_pair in (("python_d.exe", "python.exe"), ("pythonw_d.exe", "pythonw.exe")):
+                    src = os.path.join(bin_dir, exe_pair[0])
+                    dst = os.path.join(bin_dir, exe_pair[1])
+                    if os.path.exists(src):
+                        shutil.copy(src, dst)
+                # Python's installed import libraries live at <install>/bin/libs/, the
+                # location FindPython expects. However, anything that transitively
+                # includes Python.h triggers `#pragma comment(lib, "pythonXY_d.lib")`,
+                # and that auto-link only finds the file when the linker's search path
+                # already covers <install>/bin/libs/. Downstream consumers (such as
+                # FreeCAD's own CMake) typically only add <install>/lib/ to the linker
+                # search path. Mirror both libs into <install>/lib/ so the auto-link
+                # resolves without requiring downstream configuration changes.
+                top_lib_dir = os.path.join(self.install_dir, "lib")
+                for lib_name in (f"{versioned}_d.lib", f"{versioned}.lib"):
+                    src = os.path.join(libs_dir, lib_name)
+                    if os.path.exists(src):
+                        shutil.copy(src, os.path.join(top_lib_dir, lib_name))
+                site_packages_dir = os.path.join(lib_dir, "site-packages")
+                os.makedirs(site_packages_dir, exist_ok=True)
+                with open(
+                    os.path.join(site_packages_dir, "sitecustomize.py"),
+                    "w",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(_SITECUSTOMIZE_DEBUG_SHIM)
         else:
             raise NotImplemented("Non-Windows compilation of Python is not implemented yet")
 
@@ -418,16 +773,125 @@ class Compiler:
                 print(e.output.decode("utf-8", errors="replace"))
             exit(1)
 
+    def _filter_debug_requirements(self, requirements):
+        kept = [
+            spec
+            for spec in requirements
+            if _requirement_package_name(spec) not in _DEBUG_BUILD_EXCLUDED_REQUIREMENTS
+        ]
+        kept_names = {_requirement_package_name(spec) for spec in kept}
+        for tool in _DEBUG_BUILD_REQUIRED_TOOLING:
+            if tool.lower() not in kept_names:
+                kept.append(tool)
+        return kept
+
+    def _install_debug_library_aliases(self):
+        """Create release-named copies of debug-suffixed import libraries so that
+        source-built Python C extensions can find them under their conventional names.
+        Pillow's setup.py looks for 'zlib' and 'libpng16' literally, ignoring CMake's
+        'd' debug suffix; numpy and scipy search for BLAS by similarly fixed names.
+        This is a flat list of known-needed aliases rather than a heuristic sweep,
+        because some legitimate library names happen to end in 'd' for unrelated
+        reasons. Aliases are only created when both the debug source exists and the
+        release target does not."""
+        if self.mode != BuildMode.DEBUG:
+            return
+        aliases = (
+            ("lib/zd.lib", "lib/zlib.lib"),
+            ("lib/libpng16d.lib", "lib/libpng16.lib"),
+            ("lib/libxml2d.lib", "lib/libxml2.lib"),
+            ("lib/libxsltd.lib", "lib/libxslt.lib"),
+            ("lib/libexsltd.lib", "lib/libexslt.lib"),
+        )
+        for src, dst in aliases:
+            src_path = os.path.join(self.install_dir, src)
+            dst_path = os.path.join(self.install_dir, dst)
+            if os.path.exists(src_path) and not os.path.exists(dst_path):
+                shutil.copy(src_path, dst_path)
+
     def _install_python_requirements(self, requirements):
+        if self.mode == BuildMode.DEBUG:
+            requirements = self._filter_debug_requirements(requirements)
+        sentinel = "packaging" if self.mode == BuildMode.DEBUG else "PIL"
         if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "bin", "Lib", "site-packages", "PIL")):
+            if os.path.exists(
+                os.path.join(self.install_dir, "bin", "Lib", "site-packages", sentinel)
+            ):
                 print("  Not re-installing Python requirements, they are already in the LibPack")
                 return
+        if self.mode == BuildMode.DEBUG:
+            # The main install below uses --no-build-isolation, which requires PEP 517
+            # build backends (setuptools, meson-python, etc.) to already be present in the
+            # LibPack environment. Pip's resolver is single-pass: it cannot install a
+            # backend in the same install request that needs the backend to fetch metadata
+            # for some other package. Bootstrap the tooling first via a separate pip call
+            # with normal isolated builds (the tooling itself is pure-Python or binary, so
+            # isolation is harmless there).
+            print("  Installing build-time tooling")
+            self._run_pip_install(
+                list(_DEBUG_BUILD_REQUIRED_TOOLING),
+                no_build_isolation=False,
+                no_binary_packages=(),
+            )
+            self._install_debug_library_aliases()
         print("  Installing the following requirements (and their dependencies) using pip:")
         for req in requirements:
             print("    " + req)
+        # meson-python defaults to "-Dbuildtype=release -Db_ndebug=if-release -Db_vscrt=md"
+        # regardless of the target Python's debug-ness. b_vscrt=md forces /MD (release
+        # CRT) independently of buildtype, so overriding only buildtype leaves extensions
+        # linked against VCRUNTIME140.dll. Pass both -Dbuildtype=debug (so meson selects
+        # debug compile flags and no NDEBUG) and -Db_vscrt=mdd (so the linker uses
+        # ucrtbased.dll and VCRUNTIME140D.dll).
+        # No explicit blas / lapack option here: numpy and scipy auto-detect OpenBLAS
+        # via the openblas.pc that pkg-config sees through PKG_CONFIG_PATH set in the
+        # subprocess env below. Most other meson-python projects (contourpy, etc.) do
+        # not declare a blas option and would error if we passed one.
+        config_settings = (
+            (
+                ("setup-args", "-Dbuildtype=debug"),
+                ("setup-args", "-Db_vscrt=mdd"),
+                # cpp_std=c++17 is required for pythran-generated C++ in scipy. Pythran's
+                # generated headers still use std::result_of_t, which C++20 removed.
+                # MSVC's default standard is newer than C++17 in current toolsets, so we
+                # pin it explicitly. Numpy's own meson.build already pins c++17, so this
+                # change is a no-op for numpy and a fix for scipy.
+                ("setup-args", "-Dcpp_std=c++17"),
+            )
+            if self.mode == BuildMode.DEBUG
+            else ()
+        )
+        # Scipy needs an extra meson option that other meson-python projects (numpy in
+        # particular) reject as unknown. Pull it out for a separate pip pass.
+        scipy_specs: list = []
+        if self.mode == BuildMode.DEBUG:
+            scipy_specs = [r for r in requirements if _requirement_package_name(r) == "scipy"]
+            if scipy_specs:
+                requirements = [r for r in requirements if _requirement_package_name(r) != "scipy"]
+        self._run_pip_install(
+            requirements,
+            no_build_isolation=(self.mode == BuildMode.DEBUG),
+            no_binary_packages=(_DEBUG_BUILD_FROM_SOURCE if self.mode == BuildMode.DEBUG else ()),
+            config_settings=config_settings,
+        )
+        if scipy_specs:
+            print("  Installing scipy with use-pythran=false")
+            self._run_pip_install(
+                scipy_specs,
+                no_build_isolation=True,
+                no_binary_packages=("scipy",),
+                # Pythran 0.18 headers fail to compile under MSVC for scipy's
+                # pythran-translated modules (a ref-qualifier overload mismatch in
+                # ndarray.hpp). Disabling pythran skips those modules; scipy provides
+                # pure-Python fallbacks for each.
+                config_settings=config_settings + (("setup-args", "-Duse-pythran=false"),),
+            )
+
+    def _run_pip_install(
+        self, requirements, no_build_isolation, no_binary_packages, config_settings=()
+    ):
         path_to_python = self.python_exe()
-        call_args = [
+        pip_args = [
             path_to_python,
             "-m",
             "pip",
@@ -436,9 +900,80 @@ class Compiler:
             "--ignore-installed",
             "--no-warn-script-location",
         ]
-        call_args.extend(requirements)
+        if no_build_isolation:
+            pip_args.append("--no-build-isolation")
+        for pkg in no_binary_packages:
+            pip_args.extend(["--no-binary", pkg])
+        for key, value in config_settings:
+            pip_args.append(f"--config-settings={key}={value}")
+        pip_args.extend(requirements)
+        if self.mode == BuildMode.DEBUG:
+            # Source-built C extensions need MSVC visible. Source vcvars first and tell
+            # setuptools to trust the existing SDK env instead of auto-detecting compilers.
+            # Also expose the LibPack's Scripts directory on PATH so build backends like
+            # meson-python can find the meson and ninja executables that were installed
+            # alongside their Python packages, and prepend the LibPack's include and lib
+            # directories to INCLUDE and LIB so packages built against LibPack-bundled
+            # C/C++ libraries (pillow against libpng, zlib, freetype, for example) find
+            # their headers and import libs.
+            env = os.environ.copy()
+            env["DISTUTILS_USE_SDK"] = "1"
+            env["MSSdk"] = "1"
+            # kiwisolver's pyproject.toml declares dynamic version via setuptools_scm,
+            # which falls back to "0.0.0" outside a git checkout. Pip's metadata
+            # consistency check then rejects the sdist (requested 1.5.0, got 0.0.0).
+            # The setuptools_scm-native override is package-scoped by name suffix,
+            # so it does not affect any other setuptools_scm packages we install.
+            env["SETUPTOOLS_SCM_PRETEND_VERSION_FOR_KIWISOLVER"] = "1.5.0"
+            # lxml on Windows defaults to STATIC_DEPS=true, which downloads
+            # libxml2/libxslt sources and bundles them statically. We provide both
+            # as LibPack packages with pkg-config files (libxml-2.0.pc, libxslt.pc).
+            # STATIC_DEPS=false switches lxml to the system-deps path; pkg-config
+            # then supplies the correct -I${includedir}/libxml2 cflag that lxml's
+            # source needs to find <libxml/xmlversion.h>.
+            env["STATIC_DEPS"] = "false"
+            # pkgconf-pypi 2.5.x has a bug in its pkg-config.exe wrapper: when
+            # PKG_CONFIG_PATH is set in the environment, the wrapper's
+            # _vanilla_entrypoint never invokes the bundled pkgconf binary at all
+            # and exits 0 with no output. FORCE_PKGCONF_PYPI=1 routes the wrapper
+            # through _python_aware_entrypoint which calls pkgconf correctly. lxml
+            # is the first package whose setup.py invokes pkg-config at build time;
+            # without this, pkg-config silently returns no flags and lxml's compile
+            # cannot find <libxml/xmlversion.h>.
+            env["FORCE_PKGCONF_PYPI"] = "1"
+            scripts_dir = os.path.join(self.install_dir, "bin", "Scripts")
+            bin_dir = os.path.join(self.install_dir, "bin")
+            env["PATH"] = scripts_dir + os.pathsep + bin_dir + os.pathsep + env.get("PATH", "")
+            include_dir = os.path.join(self.install_dir, "include")
+            python_include_dir = os.path.join(self.install_dir, "bin", "Include")
+            lib_dir = os.path.join(self.install_dir, "lib")
+            python_lib_dir = os.path.join(self.install_dir, "bin", "libs")
+            env["INCLUDE"] = (
+                include_dir + os.pathsep + python_include_dir + os.pathsep + env.get("INCLUDE", "")
+            )
+            env["LIB"] = lib_dir + os.pathsep + python_lib_dir + os.pathsep + env.get("LIB", "")
+            # Tell pkg-config and CMake where to find LibPack-installed packages so meson's
+            # dependency() resolves OpenBLAS (and any future LibPack-bundled lib) by either
+            # method. pkg-config is the preferred lookup for numpy and scipy; CMake is the
+            # fallback meson tries when pkg-config does not find a match.
+            pkgconfig_lib_dir = os.path.join(self.install_dir, "lib", "pkgconfig")
+            pkgconfig_share_dir = os.path.join(self.install_dir, "share", "pkgconfig")
+            env["PKG_CONFIG_PATH"] = (
+                pkgconfig_lib_dir
+                + os.pathsep
+                + pkgconfig_share_dir
+                + os.pathsep
+                + env.get("PKG_CONFIG_PATH", "")
+            )
+            env["CMAKE_PREFIX_PATH"] = (
+                self.install_dir + os.pathsep + env.get("CMAKE_PREFIX_PATH", "")
+            )
+            call_args = [*self.init_script, "&", *pip_args]
+        else:
+            env = None
+            call_args = pip_args
         try:
-            self._run_streaming(call_args, "pip_log.txt")
+            self._run_streaming(call_args, "pip_log.txt", env=env)
         except subprocess.CalledProcessError as e:
             print(f"ERROR: Failed to pip install requirements")
             if e.output:
@@ -472,7 +1007,7 @@ class Compiler:
         against the LibPack's own zlib and libpng."""
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
-                print("Not building Qt from source, it already seems to be in the LibPack")
+                print("  Not rebuilding Qt, it is already in the LibPack")
                 return
 
         build_dir = os.path.join(os.getcwd(), f"build-{str(self.mode).lower()}")
@@ -496,7 +1031,10 @@ class Compiler:
 
         # Qt needs access to zlib and libpng, and assumes they are installed at the system level. We want to
         # use the LibPack versions. The easiest thing to do is just copy the DLLs:
-        files = ["z.dll", "libpng16.dll"]
+        if self.mode == BuildMode.DEBUG:
+            files = ["zd.dll", "libpng16d.dll"]
+        else:
+            files = ["z.dll", "libpng16.dll"]
         source = os.path.join(self.install_dir, "bin")
         destination = os.path.join(build_dir, "qtbase", "bin")
         os.makedirs(destination, exist_ok=True)
@@ -518,6 +1056,8 @@ class Compiler:
             "-opengl",
             "desktop",
         ]
+        if self.mode == BuildMode.DEBUG:
+            init_command.append("-debug")
         try:
             self._run_streaming(init_command, "configure_log.txt")
         except subprocess.CalledProcessError as e:
@@ -1058,6 +1598,38 @@ class Compiler:
 
         os.chdir(cwd)
 
+        if self.mode == BuildMode.DEBUG and sys.platform.startswith("win32"):
+            # OCCT's install layout for Debug places DLLs in <install>/bind/ and
+            # import libraries in <install>/libd/, ignoring INSTALL_DIR_BIN and
+            # INSTALL_DIR_LIB. Downstream consumers (FreeCAD, every workbench
+            # .pyd) look for these libraries in <install>/bin/ and <install>/lib/.
+            # Merge them in-place and remove the now-empty source directories.
+            for src_name, dst_name in (("bind", "bin"), ("libd", "lib")):
+                src = os.path.join(self.install_dir, src_name)
+                dst = os.path.join(self.install_dir, dst_name)
+                if not os.path.isdir(src):
+                    continue
+                for entry in os.listdir(src):
+                    src_path = os.path.join(src, entry)
+                    dst_path = os.path.join(dst, entry)
+                    if os.path.exists(dst_path):
+                        continue
+                    shutil.copy2(src_path, dst_path)
+                shutil.rmtree(src, onerror=remove_readonly)
+            # OCCT's per-config Targets files reference the original bind/ and
+            # libd/ paths. Rewrite them to point at the merged locations so that
+            # find_package(OpenCASCADE) succeeds in downstream builds.
+            occt_targets = glob.glob(
+                os.path.join(self.install_dir, "cmake", "OpenCASCADE*Targets-debug.cmake")
+            )
+            for target_file in occt_targets:
+                with open(target_file, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+                text = text.replace("${_IMPORT_PREFIX}/libd/", "${_IMPORT_PREFIX}/lib/")
+                text = text.replace("${_IMPORT_PREFIX}/bind/", "${_IMPORT_PREFIX}/bin/")
+                with open(target_file, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+
         # TODO - something is getting messed up in the CMake config output (note the quotes around 26812): for now just
         # drop the line entirely
         # set (OpenCASCADE_CXX_FLAGS    "[...] /wd"26812" /MP /W4")
@@ -1280,7 +1852,8 @@ class Compiler:
         # LibPack's site-packages.
         site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
         if self.skip_existing:
-            if os.path.exists(os.path.join(site_packages, "opencamlib", "ocl.pyd")):
+            sentinel_name = "ocl_d.pyd" if self.mode == BuildMode.DEBUG else "ocl.pyd"
+            if os.path.exists(os.path.join(site_packages, "opencamlib", sentinel_name)):
                 print("  Not rebuilding opencamlib, it is already in the LibPack")
                 return
         extra_args = [
@@ -1329,9 +1902,14 @@ class Compiler:
         self._build_standard_cmake(extra_args)
 
     def build_ifcopenshell(self, _=None):
-        """On x64 Windows ifcopenshell is installed via pip from PyPI. On ARM64 Windows no
-        PyPI wheel exists, so the working directory is populated from the prebuilt zip at
-        builds.ifcopenshell.org and the package directory is copied into site-packages."""
+        """In Release mode: x64 Windows installs from PyPI; ARM64 Windows extracts a
+        prebuilt zip from builds.ifcopenshell.org into site-packages.
+
+        In Debug mode: neither PyPI wheel nor S3 prebuilt has cp3XXd ABI artifacts, so
+        we source-build from the upstream GitHub repo using LibPack Boost, OpenCASCADE,
+        libxml2, and HDF5."""
+        if self.mode == BuildMode.DEBUG:
+            return self._build_ifcopenshell_debug()
         if platform.machine() != "ARM64" or sys.platform != "win32":
             return
         site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
@@ -1347,3 +1925,77 @@ class Compiler:
         if os.path.exists(target):
             shutil.rmtree(target, onerror=remove_readonly)
         shutil.copytree(source, target)
+
+    def _build_ifcopenshell_debug(self):
+        """Debug-mode source build of IfcOpenShell. fetch_remote_data clones and
+        patches the source for us in Debug because the ifcopenshell entry has
+        both a git-repo and a url-ARM64 (the latter is the Release-only prebuilt
+        zip)."""
+        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
+        target = os.path.join(site_packages, "ifcopenshell")
+        if self.skip_existing and os.path.exists(target):
+            print("  Not rebuilding ifcopenshell, it is already in the LibPack")
+            return
+        cwd = os.getcwd()
+        # IfcOpenShell's root CMakeLists.txt lives in the cmake/ subdirectory, not
+        # the repo root. Dependencies (OpenCASCADE, HDF5, LibXml2, VTK) are resolved
+        # through their installed CMake package configs via CMAKE_PREFIX_PATH rather
+        # than passing manual include and library paths, because OCCT installs into a
+        # flat layout (inc/ and libd/) that does not match the conventional layout
+        # IfcOpenShell's Find modules assume.
+        ifc_install_dir = self.install_dir.replace("\\", "/")
+        extra_args = [
+            "-G",
+            "Ninja",
+            "-D CMAKE_CXX_STANDARD=17",
+            f"-D CMAKE_PREFIX_PATH={ifc_install_dir}",
+            f"-D BOOST_ROOT={ifc_install_dir}",
+            "-D Boost_USE_STATIC_LIBS=OFF",
+            f"-D HDF5_DIR={ifc_install_dir}/cmake",
+            f"-D PYTHON_EXECUTABLE={self.python_exe()}",
+            "-D BUILD_IFCPYTHON=ON",
+            "-D BUILD_IFCMAX=OFF",
+            "-D BUILD_GEOMSERVER=OFF",
+            "-D BUILD_CONVERT=OFF",
+            "-D BUILD_EXAMPLES=OFF",
+            "-D BUILD_TESTING=OFF",
+            "-D WITH_CGAL=OFF",
+            "-D COLLADA_SUPPORT=OFF",
+            "-D HDF5_SUPPORT=OFF",
+            "-D USE_DEBUG_PYTHON=ON",
+            "-D BUILD_ONLY_COMMON_SCHEMAS=ON",
+            "-D BUILD_SHARED_LIBS=OFF",
+        ]
+        # The source layout puts the CMakeLists in cmake/, not the repo root, so we
+        # cannot use the standard _build_standard_cmake helper which assumes "..".
+        build_dir = os.path.join(cwd, "build-debug")
+        if os.path.exists(build_dir):
+            shutil.rmtree(build_dir, onerror=remove_readonly)
+        os.makedirs(build_dir)
+        os.chdir(build_dir)
+        # IfcOpenShell's CMakeLists.txt and svgfill/CMakeLists.txt both contain
+        # blocks guarded by `if(WIN32 AND NOT DEFINED ENV{CONDA_BUILD})` that force
+        # `Boost_USE_STATIC_LIBS=ON` as a non-cache variable, which shadows any -D
+        # we pass and causes Boost's modular shared configs to declare themselves
+        # version-incompatible. FindHDF5.cmake similarly takes a Windows naming
+        # path that does not match our LibPack when CONDA_BUILD is unset. Setting
+        # CONDA_BUILD diverts all three sites to the branch that uses the package
+        # configs we install, with no other side effects in IfcOpenShell.
+        prev_conda_build = os.environ.get("CONDA_BUILD")
+        os.environ["CONDA_BUILD"] = "1"
+        old_strict_mode = self.strict_mode
+        self.strict_mode = False
+        try:
+            options = self.get_cmake_options()
+            options.extend(extra_args)
+            options.append("../cmake")
+            self._run_cmake(options)
+            self._cmake_build()
+            self._cmake_install()
+        finally:
+            self.strict_mode = old_strict_mode
+            if prev_conda_build is None:
+                os.environ.pop("CONDA_BUILD", None)
+            else:
+                os.environ["CONDA_BUILD"] = prev_conda_build
+            os.chdir(cwd)

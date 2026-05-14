@@ -1,0 +1,16 @@
+@@@ src/ifcgeom/ConversionResult.h @@@
+@@ -5868,62 +5868,38 @@
+ Args
+-%3E%0A%09%09OpaqueCoordinate(Args... args) %7B%0A%09%09%09static_assert(
++, typename = std::enable_if_t%3C
+ size
+@@ -5904,17 +5904,17 @@
+ zeof...(
+-a
++A
+ rgs) == 
+@@ -5918,52 +5918,45 @@
+ == N
+-, %22Incorrect number of arguments provided%22);
++%3E%3E%0A%09%09OpaqueCoordinate(Args... args) %7B
+ %0A%09%09%09

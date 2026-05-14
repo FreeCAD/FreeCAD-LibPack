@@ -7,7 +7,9 @@
 # should probably be consolidated.
 
 import os
+import re
 import shutil
+from typing import Dict, List
 
 paths_to_delete = [
     "custom_vc14_64.bat",
@@ -69,8 +71,29 @@ def remove_local_path_from_cmake_file(base_path: str, file_to_clean: str) -> Non
     if cmake_base_path != base_path_native:
         contents = contents.replace(cmake_base_path, cmake_replacement)
 
+    contents = _normalize_slashes_in_cmake_paths(contents)
+
     with open(file_to_clean, "w", encoding="utf-8") as f:
         f.write(contents)
+
+
+_QUOTED_CMAKE_PATH_RE = re.compile(r'"([^"\n]*\$\{CMAKE_CURRENT_SOURCE_DIR\}[^"\n]*)"')
+
+
+def _normalize_slashes_in_cmake_paths(contents: str) -> str:
+    """Some upstreams (Netgen, others) record Windows-style paths with backslashes
+    in their installed CMake configs. After the prefix substitution above, the
+    install-dir portion is replaced with `${CMAKE_CURRENT_SOURCE_DIR}/...` but any
+    trailing backslashes inside the quoted string remain, producing strings such
+    as `"${CMAKE_CURRENT_SOURCE_DIR}/..\\bin\\python_d.exe"`. CMake accepts
+    forward slashes universally on Windows; quoted strings that contain a
+    `${CMAKE_CURRENT_SOURCE_DIR}` reference are paths, not CMake escape sequences,
+    so it is safe to normalize backslashes within them."""
+
+    def _normalize(match: re.Match) -> str:
+        return '"' + match.group(1).replace("\\", "/") + '"'
+
+    return _QUOTED_CMAKE_PATH_RE.sub(_normalize, contents)
 
 
 def create_depth_string(base_path: str, file_to_clean: str) -> str:
@@ -354,6 +377,80 @@ def delete_llvm_internal_headers(base_path: str) -> int:
         except OSError as e:
             print(f"Failed to delete {target}: {e}")
     return removed
+
+
+_VC_INTERMEDIATE_PDB_RE = re.compile(r"^vc\d+\.pdb$", re.IGNORECASE)
+
+
+def install_pdb_sidecars(
+    install_dir: str, working_dir: str, extra_search_dirs: List[str] = None
+) -> int:
+    """Copy upstream debug-symbol files (PDBs) next to their installed DLLs.
+
+    Most upstream CMake configs install only the DLL and the import library and
+    leave the sidecar PDB behind in the build tree. As a result the installed
+    LibPack carries no debugging information for Qt, OCCT, Coin, VTK, Boost, or
+    the Python interpreter, even when built with /Zi /DEBUG. This walk fills
+    that gap: for every DLL already installed under ``install_dir``, locate a
+    PDB whose stem matches anywhere under ``working_dir`` (or any of the
+    ``extra_search_dirs``) and whose modification time is newest, then copy it
+    next to the DLL. Intermediate cl.exe PDBs (``vcNNN.pdb``) are skipped
+    because they describe per-build compilations rather than a target's debug
+    info. The ``extra_search_dirs`` argument exists because some packages
+    (Qt in particular) build into an out-of-tree ``fallback-build-dir`` to dodge
+    Windows path-length limits, and their PDBs are therefore not under
+    ``working_dir``.
+
+    Returns the number of PDB files newly placed."""
+    print("Installing PDB debug-symbol sidecars")
+    installed_dlls: Dict[str, str] = {}
+    for root, _dirs, files in os.walk(install_dir):
+        for name in files:
+            if name.lower().endswith(".dll"):
+                stem = os.path.splitext(name)[0].lower()
+                installed_dlls.setdefault(stem, os.path.join(root, name))
+
+    install_norm = os.path.normcase(os.path.abspath(install_dir))
+    pdb_index: Dict[str, str] = {}
+    search_roots = [working_dir]
+    if extra_search_dirs:
+        search_roots.extend(extra_search_dirs)
+    for search_root in search_roots:
+        if not os.path.isdir(search_root):
+            continue
+        for root, _dirs, files in os.walk(search_root):
+            if os.path.normcase(os.path.abspath(root)).startswith(install_norm):
+                continue
+            for name in files:
+                if not name.lower().endswith(".pdb"):
+                    continue
+                if _VC_INTERMEDIATE_PDB_RE.match(name):
+                    continue
+                stem = os.path.splitext(name)[0].lower()
+                full = os.path.join(root, name)
+                existing = pdb_index.get(stem)
+                if existing is None or os.path.getmtime(full) > os.path.getmtime(existing):
+                    pdb_index[stem] = full
+
+    copied = 0
+    for stem, dll_install_path in installed_dlls.items():
+        pdb_source = pdb_index.get(stem)
+        if pdb_source is None and stem.endswith("d"):
+            # OpenCASCADE names its debug DLLs with a `d` suffix (e.g. TKerneld.dll)
+            # but emits PDBs without it (TKernel.pdb). Try the stripped stem too.
+            pdb_source = pdb_index.get(stem[:-1])
+        if pdb_source is None:
+            continue
+        pdb_dest = os.path.splitext(dll_install_path)[0] + ".pdb"
+        if os.path.exists(pdb_dest):
+            continue
+        try:
+            shutil.copy2(pdb_source, pdb_dest)
+            copied += 1
+        except OSError as e:
+            print(f"Failed to copy {pdb_source} to {pdb_dest}: {e}")
+    print(f"  Installed {copied} PDB sidecars")
+    return copied
 
 
 def delete_pdb_files(base_path: str) -> int:

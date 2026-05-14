@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import MagicMock, patch, mock_open
 
 import create_libpack
+from compile_all import BuildMode
 
 
 class TestDeleteExisting(unittest.TestCase):
@@ -125,7 +126,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test3", "git-repo": "test3_repo", "git-ref": "test3_ref"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config)
+        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         self.assertEqual(mock_clone.call_count, 3)
 
     @patch("builtins.print")
@@ -133,7 +134,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         """An entry with a git-ref but no git-repo is an error"""
         test_config = {"content": [{"name": "test1", "git-ref": "test1_ref"}]}
         with self.assertRaises(SystemExit):
-            create_libpack.fetch_remote_data(test_config)
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         mock_print.assert_called()
 
     @patch("create_libpack.clone")
@@ -144,7 +145,7 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test1", "git-repo": "test1_repo"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config)
+        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         mock_clone.assert_called_once_with("test1", "test1_repo", None, None)
 
     @patch("create_libpack.clone")
@@ -155,8 +156,46 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test1"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config)
+        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         mock_clone.assert_not_called()
+
+    @patch("create_libpack.clone")
+    @patch("create_libpack.download")
+    def test_hybrid_entry_clones_in_debug(self, download_mock: MagicMock, clone_mock: MagicMock):
+        """An entry with both git-repo and url-* is cloned in Debug, downloaded
+        (or skipped) in Release."""
+        test_config = {
+            "content": [
+                {
+                    "name": "hybrid",
+                    "git-repo": "hybrid_repo",
+                    "git-ref": "hybrid_ref",
+                    "url": "https://example.com/prebuilt.zip",
+                }
+            ]
+        }
+        create_libpack.fetch_remote_data(test_config, BuildMode.DEBUG)
+        clone_mock.assert_called_once_with("hybrid", "hybrid_repo", "hybrid_ref", None)
+        download_mock.assert_not_called()
+
+    @patch("create_libpack.clone")
+    @patch("create_libpack.download")
+    def test_hybrid_entry_downloads_in_release(
+        self, download_mock: MagicMock, clone_mock: MagicMock
+    ):
+        test_config = {
+            "content": [
+                {
+                    "name": "hybrid",
+                    "git-repo": "hybrid_repo",
+                    "git-ref": "hybrid_ref",
+                    "url": "https://example.com/prebuilt.zip",
+                }
+            ]
+        }
+        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        download_mock.assert_called_once_with("hybrid", "https://example.com/prebuilt.zip")
+        clone_mock.assert_not_called()
 
     @patch("os.chdir")
     @patch("subprocess.run")
@@ -225,13 +264,13 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test3", "git-repo": "test3_repo", "git-ref": "test3_ref"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config, skip_existing=True)
+        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE, skip_existing=True)
         clone_mock.assert_not_called()
 
     @patch("create_libpack.download")
     def test_url_calls_download(self, download_mock: MagicMock):
         test_config = {"content": [{"name": "test", "url": "https://some.url"}]}
-        create_libpack.fetch_remote_data(test_config)
+        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         download_mock.assert_called_once()
 
     @patch("os.mkdir")  # Patch so it doesn't actually make a directory
