@@ -246,6 +246,30 @@ def decompress(name: str, filename: str):
     os.chdir(original_dir)
 
 
+def create_archive(libpack_path: str) -> str:
+    """Pack the finished LibPack directory into a sibling .7z archive using the
+    system 7-zip executable. The archive is written next to the directory and
+    overwrites any existing archive of the same name."""
+    parent = os.path.dirname(libpack_path)
+    name = os.path.basename(libpack_path)
+    archive_name = name + ".7z"
+    archive_path = os.path.join(parent, archive_name)
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+    print(f"Creating 7-zip archive {archive_path}")
+    cwd = os.getcwd()
+    os.chdir(parent)
+    try:
+        try:
+            subprocess.run([path_to_7zip, "a", "-t7z", archive_name, name], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: failed to create 7-zip archive {archive_path} using {path_to_7zip}")
+            exit(e.returncode)
+    finally:
+        os.chdir(cwd)
+    return archive_path
+
+
 def write_manifest(outer_config: dict, mode_used: compile_all.BuildMode):
     manifest_file = os.path.join(compile_all.libpack_dir(outer_config, mode_used), "manifest.json")
     with open(manifest_file, "w", encoding="utf-8") as f:
@@ -381,12 +405,6 @@ if __name__ == "__main__":
         default="./config.json",
     )
     parser.add_argument(
-        "-w",
-        "--working",
-        help="Directory to put all the clones and downloads in",
-        default="./working",
-    )
-    parser.add_argument(
         "-e",
         "--no-skip-existing-clone",
         action="store_false",
@@ -403,6 +421,15 @@ if __name__ == "__main__":
         "--silent",
         action="store_true",
         help="I kow what I'm doing, don't ask me any questions",
+    )
+    parser.add_argument(
+        "-z",
+        "--archive",
+        action="store_true",
+        help=(
+            "After the build completes, compress the finished LibPack directory into a "
+            "sibling .7z archive suitable for distribution."
+        ),
     )
     parser.add_argument("--7zip", help="Path to 7-zip executable", default=path_to_7zip)
     parser.add_argument("--bison", help="Path to Bison executable", default=path_to_bison)
@@ -446,13 +473,14 @@ if __name__ == "__main__":
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
-    os.makedirs("working", exist_ok=True)
-    os.chdir("working")
     mode = (
         compile_all.BuildMode.DEBUG
         if args["mode"].lower() == "debug"
         else compile_all.BuildMode.RELEASE
     )
+    working = compile_all.working_dir_name(mode)
+    os.makedirs(working, exist_ok=True)
+    os.chdir(working)
     if args["no_skip_existing_clone"]:
         dirname = compile_all.libpack_dir(config_dict, mode)
         if not os.path.exists(dirname):
@@ -536,3 +564,6 @@ if __name__ == "__main__":
             path_cleaner.delete_pdb_files(base_path)
 
         write_manifest(config_dict, mode)
+
+        if args["archive"]:
+            create_archive(base_path)
