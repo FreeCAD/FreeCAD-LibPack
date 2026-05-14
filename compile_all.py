@@ -9,6 +9,7 @@ from diff_match_patch import diff_match_patch
 from typing import Dict, List, Optional, Tuple
 
 from enum import Enum
+import glob
 import os
 import pathlib
 import platform
@@ -706,6 +707,29 @@ class Compiler:
                     os.path.join(bin_dir, f"{versioned}_d.dll"),
                     os.path.join(bin_dir, f"{versioned}.dll"),
                 )
+                # FreeCAD's CMake (and CMake's own FindPython) searches for python.exe
+                # and pythonw.exe by their release names. Provide same-content copies
+                # next to the debug-suffixed originals so downstream consumers find a
+                # Python executable inside the LibPack instead of escaping to a system
+                # install with a different ABI.
+                for exe_pair in (("python_d.exe", "python.exe"), ("pythonw_d.exe", "pythonw.exe")):
+                    src = os.path.join(bin_dir, exe_pair[0])
+                    dst = os.path.join(bin_dir, exe_pair[1])
+                    if os.path.exists(src):
+                        shutil.copy(src, dst)
+                # Python's installed import libraries live at <install>/bin/libs/, the
+                # location FindPython expects. However, anything that transitively
+                # includes Python.h triggers `#pragma comment(lib, "pythonXY_d.lib")`,
+                # and that auto-link only finds the file when the linker's search path
+                # already covers <install>/bin/libs/. Downstream consumers (such as
+                # FreeCAD's own CMake) typically only add <install>/lib/ to the linker
+                # search path. Mirror both libs into <install>/lib/ so the auto-link
+                # resolves without requiring downstream configuration changes.
+                top_lib_dir = os.path.join(self.install_dir, "lib")
+                for lib_name in (f"{versioned}_d.lib", f"{versioned}.lib"):
+                    src = os.path.join(libs_dir, lib_name)
+                    if os.path.exists(src):
+                        shutil.copy(src, os.path.join(top_lib_dir, lib_name))
                 site_packages_dir = os.path.join(lib_dir, "site-packages")
                 os.makedirs(site_packages_dir, exist_ok=True)
                 with open(
@@ -1574,6 +1598,38 @@ class Compiler:
 
         os.chdir(cwd)
 
+        if self.mode == BuildMode.DEBUG and sys.platform.startswith("win32"):
+            # OCCT's install layout for Debug places DLLs in <install>/bind/ and
+            # import libraries in <install>/libd/, ignoring INSTALL_DIR_BIN and
+            # INSTALL_DIR_LIB. Downstream consumers (FreeCAD, every workbench
+            # .pyd) look for these libraries in <install>/bin/ and <install>/lib/.
+            # Merge them in-place and remove the now-empty source directories.
+            for src_name, dst_name in (("bind", "bin"), ("libd", "lib")):
+                src = os.path.join(self.install_dir, src_name)
+                dst = os.path.join(self.install_dir, dst_name)
+                if not os.path.isdir(src):
+                    continue
+                for entry in os.listdir(src):
+                    src_path = os.path.join(src, entry)
+                    dst_path = os.path.join(dst, entry)
+                    if os.path.exists(dst_path):
+                        continue
+                    shutil.copy2(src_path, dst_path)
+                shutil.rmtree(src, onerror=remove_readonly)
+            # OCCT's per-config Targets files reference the original bind/ and
+            # libd/ paths. Rewrite them to point at the merged locations so that
+            # find_package(OpenCASCADE) succeeds in downstream builds.
+            occt_targets = glob.glob(
+                os.path.join(self.install_dir, "cmake", "OpenCASCADE*Targets-debug.cmake")
+            )
+            for target_file in occt_targets:
+                with open(target_file, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+                text = text.replace("${_IMPORT_PREFIX}/libd/", "${_IMPORT_PREFIX}/lib/")
+                text = text.replace("${_IMPORT_PREFIX}/bind/", "${_IMPORT_PREFIX}/bin/")
+                with open(target_file, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+
         # TODO - something is getting messed up in the CMake config output (note the quotes around 26812): for now just
         # drop the line entirely
         # set (OpenCASCADE_CXX_FLAGS    "[...] /wd"26812" /MP /W4")
@@ -1796,7 +1852,8 @@ class Compiler:
         # LibPack's site-packages.
         site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
         if self.skip_existing:
-            if os.path.exists(os.path.join(site_packages, "opencamlib", "ocl.pyd")):
+            sentinel_name = "ocl_d.pyd" if self.mode == BuildMode.DEBUG else "ocl.pyd"
+            if os.path.exists(os.path.join(site_packages, "opencamlib", sentinel_name)):
                 print("  Not rebuilding opencamlib, it is already in the LibPack")
                 return
         extra_args = [

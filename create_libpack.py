@@ -511,6 +511,13 @@ if __name__ == "__main__":
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files
         base_path = compile_all.libpack_dir(config_dict, mode)
+        if mode == compile_all.BuildMode.DEBUG:
+            extra_pdb_search_dirs = [
+                item["fallback-build-dir"]
+                for item in config_dict.get("content", [])
+                if "fallback-build-dir" in item
+            ]
+            path_cleaner.install_pdb_sidecars(base_path, os.getcwd(), extra_pdb_search_dirs)
         path_cleaner.delete_extraneous_files(base_path)
         path_cleaner.remove_local_path_from_cmake_files(base_path)
         path_cleaner.correct_opencascade_freetype_ref(base_path)
