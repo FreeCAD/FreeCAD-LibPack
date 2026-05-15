@@ -1,5 +1,0 @@
-@@@ src/StdPrs/StdPrs_BRepFont.cxx @@@
-@@ -15359,16 +15359,25 @@
-   const 
-+unsigned 
- char* aT

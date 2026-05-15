@@ -1439,18 +1439,20 @@ class Compiler:
         env["VULKAN_SDK"] = "None"
         if sys.platform.startswith("win32"):
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
-            args = [
-                *self.init_script,
-                "&",
-                python,
-                "setup.py",
-                "install",
-                qtpaths,
-                ssl,
-                parallel,
-            ]
-            if self.mode == BuildMode.DEBUG:
-                args.append("--debug")
+            python_libs = os.path.join(self.install_dir, "bin", "libs")
+            init_call = "call " + subprocess.list2cmdline(self.init_script)
+            setup_cmd = subprocess.list2cmdline(
+                [python, "setup.py", "install", qtpaths, ssl, parallel]
+                + (["--debug"] if self.mode == BuildMode.DEBUG else [])
+            )
+            wrapper_path = os.path.abspath("build_pyside_wrapper.bat")
+            with open(wrapper_path, "w", encoding="utf-8") as f:
+                f.write("@echo off\n")
+                f.write(f"{init_call}\n")
+                f.write("if errorlevel 1 exit /b %ERRORLEVEL%\n")
+                f.write(f"set LIB={python_libs};%LIB%\n")
+                f.write(f"{setup_cmd}\n")
+            args = [wrapper_path]
         else:
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
             args = [python, "setup.py", "install", qtpaths, ssl]

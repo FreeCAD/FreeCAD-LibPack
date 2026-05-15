@@ -1,37 +1,36 @@
 {
     "FreeCAD-version":"1.2.0",
-    "LibPack-version":"3.4.0",
+    "LibPack-version":"3.5.0",
     "content": [
         {
             "name":"libiconv",
             "git-repo":"https://github.com/win-iconv/win-iconv",
-            "git-ref":"v0.0.8",
+            "git-ref":"v0.0.10",
             "note": "Debug-only package. lxml's setup.py hardcodes 'iconv' in its Windows link line regardless of STATIC_DEPS or libxml2 configuration. We disable iconv in libxml2 (LIBXML2_WITH_ICONV=OFF) so nothing actually calls iconv functions, but lxml still requires iconv.lib at link time. win-iconv is a small Windows-targeted implementation that satisfies the link without bloat. Release uses lxml's PyPI wheel which bundles iconv internally."
         },
         {
             "name":"libxml2",
             "git-repo":"https://github.com/GNOME/libxml2",
-            "git-ref":"v2.13.5",
+            "git-ref":"v2.13.9",
             "note": "Debug-only package. Source-built so that lxml has a libxml2 to link against under Py_DEBUG. Release uses lxml's PyPI wheel which bundles libxml2 internally."
         },
         {
             "name":"libxslt",
             "git-repo":"https://github.com/GNOME/libxslt",
-            "git-ref":"v1.1.42",
+            "git-ref":"v1.1.45",
             "note": "Debug-only package. Depends on libxml2 above. Release uses lxml's bundled libxslt."
         },
         {
             "name":"libjpeg",
             "git-repo":"https://github.com/libjpeg-turbo/libjpeg-turbo",
-            "git-ref":"3.0.4",
+            "git-ref":"3.1.4.1",
             "note": "Debug-only package. In Release mode build_libjpeg returns early because PyPI Pillow wheels bundle their own libjpeg. In Debug mode this provides the libjpeg API that source-built Pillow links against."
         },
         {
             "name":"openblas",
             "git-repo":"https://github.com/OpenMathLib/OpenBLAS",
-            "git-ref":"v0.3.28",
+            "git-ref":"v0.3.33",
             "patches": [
-                "patches/openblas-01-honor-build-testing.patch",
                 "patches/openblas-02-whereami-msvc-stub.patch"
             ],
             "note": "Debug-only package. In Release mode build_openblas returns early because PyPI numpy and scipy wheels bundle their own OpenBLAS in numpy/.libs/. In Debug mode this provides the BLAS+LAPACK that source-built numpy and scipy link against."
@@ -49,14 +48,14 @@
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
-            "git-ref":"v3.14.4",
+            "git-ref":"v3.14.5",
             "requirements": [
                 "annotated-types==0.7.0",
                 "anyio==4.13.0",
                 "attrs==23.2.0",
                 "certifi==2026.4.22",
                 "charset-normalizer==3.4.7",
-                "click==8.1.7",
+                "click==8.3.3",
                 "cmake==4.3.2",
                 "cog==0.16.12",
                 "colorama==0.4.6",
@@ -68,16 +67,14 @@
                 "defusedxml==0.7.1",
                 "elementpath==5.1.1",
                 "fastapi==0.118.3",
-                "fonttools==4.62.1",
+                "fonttools==4.63.0",
                 "h11==0.16.0",
                 "httptools==0.7.1",
-                "idna==3.13",
+                "idna==3.15",
                 "ifcopenshell==0.8.5; platform_machine != \"ARM64\"",
                 "isodate==0.7.2",
                 "joblib==1.5.3",
                 "kiwisolver==1.5.0",
-                "ladybug-core==0.44.42",
-                "ladybug-geometry==1.34.22",
                 "lark==1.3.1",
                 "lxml==6.1.0",
                 "matplotlib==3.10.9",
@@ -87,16 +84,16 @@
                 "pillow==12.2.0",
                 "ply==3.11",
                 "pycollada==0.9.3",
-                "pydantic==2.13.3",
-                "pydantic_core==2.46.3",
+                "pydantic==2.13.4",
+                "pydantic_core==2.46.4",
                 "pyparsing==3.3.2",
                 "pyshp==3.0.3",
                 "pysolar==0.13",
                 "python-dateutil==2.9.0.post0",
                 "python-dotenv==1.2.2",
                 "PyYAML==6.0.3",
-                "regex==2026.4.4",
-                "requests==2.33.1",
+                "regex==2026.5.9",
+                "requests==2.34.1",
                 "rpdb2==2.0.0.1.2",
                 "scipy==1.17.1",
                 "sets==0.3.2",
@@ -109,7 +106,7 @@
                 "tqdm==4.67.3",
                 "typing-inspection==0.4.2",
                 "typing_extensions==4.15.0",
-                "urllib3==2.6.3",
+                "urllib3==2.7.0",
                 "uvicorn==0.46.0",
                 "vermin==1.8.0",
                 "watchfiles==1.1.1",
@@ -121,7 +118,7 @@
         {
             "name":"qt",
             "git-repo": "git://code.qt.io/qt/qt5.git",
-            "git-ref": "v6.11.0",
+            "git-ref": "v6.11.1",
             "fallback-build-dir": "G:\\temp"
         },
         {
@@ -181,7 +178,7 @@
         {
             "name":"pyside",
             "git-repo": "http://code.qt.io/pyside/pyside-setup",
-            "git-ref": "6.11.0"
+            "git-ref": "v6.11.1"
         },
         {
             "name":"vtk",
@@ -222,7 +219,7 @@
         {
             "name":"opencascade",
             "git-repo":"https://github.com/Open-Cascade-SAS/OCCT",
-            "git-ref":"V7_9_3"
+            "git-ref":"V8_0_0"
         },
         {
             "name":"netgen",
@@ -248,8 +245,11 @@
         {
             "name":"gmsh",
             "git-repo":"https://gitlab.onelab.info/gmsh/gmsh",
-            "git-ref":"gmsh_4_15_2",
-            "patches": ["patches/gmsh-01-windows_stdint.patch"]
+            "git-hash":"23c47b0e6a91f2f67afcbe3bf9ad1b5c253e96e2",
+            "patches": [
+                "patches/gmsh-01-windows_stdint.patch"
+            ],
+          "note": "git hash from 2026-05-08, with support for OCCT 8.0.0"
         },
         {
             "name":"pycxx",
