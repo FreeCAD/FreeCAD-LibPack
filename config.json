@@ -308,7 +308,7 @@
                 "patches/ifcopenshell-02-profile-point-msvc-fix.patch",
                 "patches/ifcopenshell-03-opaquecoordinate-sfinae.patch"
             ],
-            "note": "Release x64 is installed via pip from PyPI and ignores both source and zip. Release ARM64 has no PyPI wheel, so we extract the prebuilt zip from builds.ifcopenshell.org. Debug source-builds from the GitHub clone because no prebuilt cp314d artifact exists. fetch_remote_data treats this hybrid entry as: clone in Debug, download zip in Release on ARM64, do nothing in Release on x64. Patches only apply on the clone path, so the prebuilt zip is left untouched. All three paths target v0.8.5."
+            "note": "Release x64 is installed via pip from PyPI and ignores both source and zip. Release ARM64 has no PyPI wheel, so we extract the prebuilt zip from builds.ifcopenshell.org. Debug is not built for LibPack 3.5: IfcOpenShell 0.8.5 does not compile against OCCT 8.0.0 (Handle_<T> aliases, container-typedef visibility, NCollection_LinearVector::push_back, and an OCCT 8 internal bug in BRepTopAdaptor_FClass2d / CSLib_Class2d all break the source build). _build_ifcopenshell_debug is a no-op for now; revisit when IfcOpenShell upstream adapts to OCCT 8. fetch_remote_data still clones the repo on Debug because the entry has a git-repo, but the clone goes unused."
         }
     ]
 }

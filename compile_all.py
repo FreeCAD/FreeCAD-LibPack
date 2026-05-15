@@ -1043,8 +1043,9 @@ class Compiler:
                 '  path name for the actual build directory (e.g., "C:\\temp").\n'
             )
             if "fallback-build-dir" in options:
-                print(f"  Using fallback build directory {options['fallback-build-dir']}")
-                build_dir = options["fallback-build-dir"]
+                mode_suffix = "d" if self.mode == BuildMode.DEBUG else "r"
+                build_dir = os.path.join(options["fallback-build-dir"], mode_suffix)
+                print(f"  Using fallback build directory {build_dir}")
             else:
                 print(
                     f"  Attempting to use default path {build_dir}. \n\nIf the build fails, consider making a temp directory to work in.\n"
@@ -1962,8 +1963,7 @@ class Compiler:
         # LibPack's site-packages.
         site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
         if self.skip_existing:
-            sentinel_name = "ocl_d.pyd" if self.mode == BuildMode.DEBUG else "ocl.pyd"
-            if os.path.exists(os.path.join(site_packages, "opencamlib", sentinel_name)):
+            if os.path.exists(os.path.join(site_packages, "opencamlib", "ocl.pyd")):
                 print("  Not rebuilding opencamlib, it is already in the LibPack")
                 return
         extra_args = [
@@ -2037,76 +2037,9 @@ class Compiler:
         shutil.copytree(source, target)
 
     def _build_ifcopenshell_debug(self):
-        """Debug-mode source build of IfcOpenShell. fetch_remote_data clones and
-        patches the source for us in Debug because the ifcopenshell entry has
-        both a git-repo and a url-ARM64 (the latter is the Release-only prebuilt
-        zip)."""
-        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
-        target = os.path.join(site_packages, "ifcopenshell")
-        if self.skip_existing and os.path.exists(target):
-            print("  Not rebuilding ifcopenshell, it is already in the LibPack")
-            return
-        cwd = os.getcwd()
-        # IfcOpenShell's root CMakeLists.txt lives in the cmake/ subdirectory, not
-        # the repo root. Dependencies (OpenCASCADE, HDF5, LibXml2, VTK) are resolved
-        # through their installed CMake package configs via CMAKE_PREFIX_PATH rather
-        # than passing manual include and library paths, because OCCT installs into a
-        # flat layout (inc/ and libd/) that does not match the conventional layout
-        # IfcOpenShell's Find modules assume.
-        ifc_install_dir = self.install_dir.replace("\\", "/")
-        extra_args = [
-            "-G",
-            "Ninja",
-            "-D CMAKE_CXX_STANDARD=17",
-            f"-D CMAKE_PREFIX_PATH={ifc_install_dir}",
-            f"-D BOOST_ROOT={ifc_install_dir}",
-            "-D Boost_USE_STATIC_LIBS=OFF",
-            f"-D HDF5_DIR={ifc_install_dir}/cmake",
-            f"-D PYTHON_EXECUTABLE={self.python_exe()}",
-            "-D BUILD_IFCPYTHON=ON",
-            "-D BUILD_IFCMAX=OFF",
-            "-D BUILD_GEOMSERVER=OFF",
-            "-D BUILD_CONVERT=OFF",
-            "-D BUILD_EXAMPLES=OFF",
-            "-D BUILD_TESTING=OFF",
-            "-D WITH_CGAL=OFF",
-            "-D COLLADA_SUPPORT=OFF",
-            "-D HDF5_SUPPORT=OFF",
-            "-D USE_DEBUG_PYTHON=ON",
-            "-D BUILD_ONLY_COMMON_SCHEMAS=ON",
-            "-D BUILD_SHARED_LIBS=OFF",
-        ]
-        # The source layout puts the CMakeLists in cmake/, not the repo root, so we
-        # cannot use the standard _build_standard_cmake helper which assumes "..".
-        build_dir = os.path.join(cwd, "build-debug")
-        if os.path.exists(build_dir):
-            shutil.rmtree(build_dir, onerror=remove_readonly)
-        os.makedirs(build_dir)
-        os.chdir(build_dir)
-        # IfcOpenShell's CMakeLists.txt and svgfill/CMakeLists.txt both contain
-        # blocks guarded by `if(WIN32 AND NOT DEFINED ENV{CONDA_BUILD})` that force
-        # `Boost_USE_STATIC_LIBS=ON` as a non-cache variable, which shadows any -D
-        # we pass and causes Boost's modular shared configs to declare themselves
-        # version-incompatible. FindHDF5.cmake similarly takes a Windows naming
-        # path that does not match our LibPack when CONDA_BUILD is unset. Setting
-        # CONDA_BUILD diverts all three sites to the branch that uses the package
-        # configs we install, with no other side effects in IfcOpenShell.
-        prev_conda_build = os.environ.get("CONDA_BUILD")
-        os.environ["CONDA_BUILD"] = "1"
-        old_strict_mode = self.strict_mode
-        self.strict_mode = False
-        try:
-            options = self.get_cmake_options()
-            options.extend(extra_args)
-            options.extend(self._arm64_platform_flag(extra_args))
-            options.append("../cmake")
-            self._run_cmake(options)
-            self._cmake_build()
-            self._cmake_install()
-        finally:
-            self.strict_mode = old_strict_mode
-            if prev_conda_build is None:
-                os.environ.pop("CONDA_BUILD", None)
-            else:
-                os.environ["CONDA_BUILD"] = prev_conda_build
-            os.chdir(cwd)
+        """IfcOpenShell is not built in Debug mode for LibPack 3.5. ifcopenshell-python-0.8.5
+        does not compile against OCCT 8.0.0 (Handle_<T> aliases, container-typedef
+        transitive visibility, NCollection_LinearVector::push_back, and an internal OCCT 8
+        BRepTopAdaptor_FClass2d / CSLib_Class2d break all bite the source build). Revisit
+        when IfcOpenShell upstream adapts to OCCT 8."""
+        print("  Skipping ifcopenshell in Debug mode: not yet OCCT 8 compatible upstream.")
