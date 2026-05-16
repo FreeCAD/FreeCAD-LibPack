@@ -31,9 +31,20 @@
             "git-repo":"https://github.com/OpenMathLib/OpenBLAS",
             "git-ref":"v0.3.28",
             "patches": [
-                "patches/openblas-01-honor-build-testing.patch"
+                "patches/openblas-01-honor-build-testing.patch",
+                "patches/openblas-02-whereami-msvc-stub.patch"
             ],
             "note": "Debug-only package. In Release mode build_openblas returns early because PyPI numpy and scipy wheels bundle their own OpenBLAS in numpy/.libs/. In Debug mode this provides the BLAS+LAPACK that source-built numpy and scipy link against."
+        },
+        {
+            "name":"zlib",
+            "git-repo":"https://github.com/madler/zlib",
+            "git-ref":"v1.3.2"
+        },
+        {
+            "name":"libpng",
+            "git-repo":"https://github.com/glennrp/libpng",
+            "git-ref":"v1.6.58"
         },
         {
             "name":"python",
@@ -106,16 +117,6 @@
                 "wheel==0.47.0",
                 "xmlschema==4.3.1"
             ]
-        },
-        {
-            "name":"zlib",
-            "git-repo":"https://github.com/madler/zlib",
-            "git-ref":"v1.3.2"
-        },
-        {
-            "name":"libpng",
-            "git-repo":"https://github.com/glennrp/libpng",
-            "git-ref":"v1.6.58"
         },
         {
             "name":"qt",

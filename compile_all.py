@@ -357,8 +357,6 @@ class Compiler:
         if self.coin_cmake_path:
             base.append(f"-D Coin_DIR={self.coin_cmake_path}")
         if sys.platform.startswith("win32"):
-            if platform.machine() == "ARM64":
-                base.append("-A ARM64")
             inc_path = self.install_dir.replace("\\", "/")
             cxx_flags = (
                 f"/I{inc_path}/include /EHsc /FS /DWIN32 /DWIN64 /DNOMINMAX /DPy_NO_LINK_LIB"
@@ -373,6 +371,8 @@ class Compiler:
         return base
 
     def compile_all(self):
+        # This option borks Tcl by making it find the wrong paths: remove it
+        os.environ.pop("NoDefaultCurrentDirectoryInExePath", None)
         for item in self.config["content"]:
             # All build methods are named using "build_XXX" where XXX is the name of the package in the config file
             os.chdir(item["name"])
@@ -414,6 +414,7 @@ class Compiler:
             "Ninja",
             "-D BUILD_SHARED_LIBS=ON",
             "-D BUILD_TEST=OFF",
+            "-D CMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
         self._build_standard_cmake(extra_args=extra_args)
 
@@ -534,6 +535,7 @@ class Compiler:
             "-D BUILD_WITHOUT_LAPACK=OFF",
             "-D NOFORTRAN=OFF",
             "-D BUILD_TESTING=OFF",
+            "-D CMAKE_POLICY_VERSION_MINIMUM=3.5",
         ]
         self._build_standard_cmake(extra_args=extra_args)
 
@@ -984,6 +986,12 @@ class Compiler:
             env["CMAKE_PREFIX_PATH"] = (
                 self.install_dir + os.pathsep + env.get("CMAKE_PREFIX_PATH", "")
             )
+            if platform.machine() == "ARM64":
+                # MSVC's ARM64 linker mitigates Cortex-A53 erratum #843419 by inserting
+                # padding NOPs, which only works when each function lives in its own
+                # COMDAT. /Gy enables that layout. Release builds get /Gy implicitly.
+                existing_cl = env.get("CL", "").strip()
+                env["CL"] = ("/Gy " + existing_cl).strip() if existing_cl else "/Gy"
             call_args = [*self.init_script, "&", *pip_args]
         else:
             env = None
@@ -1025,6 +1033,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
                 print("  Not rebuilding Qt, it is already in the LibPack")
                 return
+        self._prepend_debug_crt_to_path()
 
         build_dir = os.path.join(os.getcwd(), f"build-{str(self.mode).lower()}")
         if len(build_dir) > 20:
@@ -1170,10 +1179,83 @@ class Compiler:
                 print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
+    def _prepend_debug_crt_to_path(self) -> None:
+        """Make the LibPack's debug DLLs (Qt's zd.dll, libpng16d.dll, and similar) and
+        the MSVC and Universal CRT debug DLLs (msvcp140d.dll, vcruntime140d.dll,
+        ucrtbased.dll) discoverable by freshly-built debug tools"""
+        if self.mode != BuildMode.DEBUG or sys.platform != "win32":
+            return
+        arch_lower = "arm64" if platform.machine() == "ARM64" else "x64"
+        toolset_prefix = ""
+        if self.msvc_tools_version:
+            toolset_prefix = ".".join(self.msvc_tools_version.split(".")[:2])
+        extra_dirs: List[str] = [os.path.join(self.install_dir, "bin")]
+        vs_root = pathlib.Path("C:/Program Files/Microsoft Visual Studio")
+        if vs_root.is_dir():
+            for vs_major in sorted(vs_root.iterdir(), reverse=True):
+                redist = vs_major / "Community" / "VC" / "Redist" / "MSVC"
+                if not redist.is_dir():
+                    continue
+                candidates = [d for d in redist.iterdir() if d.is_dir()]
+                if toolset_prefix:
+                    matching = [
+                        d for d in candidates if d.name.startswith(toolset_prefix + ".")
+                    ]
+                    if matching:
+                        candidates = matching
+                candidates.sort(
+                    key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
+                    reverse=True,
+                )
+                for ver in candidates:
+                    for crt_dir in ver.glob(
+                        f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"
+                    ):
+                        if (crt_dir / "vcruntime140d.dll").exists():
+                            extra_dirs.append(str(crt_dir))
+                            break
+                    if len(extra_dirs) > 1:
+                        break
+                if len(extra_dirs) > 1:
+                    break
+        sdk_bin = pathlib.Path("C:/Program Files (x86)/Windows Kits/10/bin")
+        if sdk_bin.is_dir():
+            sdk_versions = sorted(
+                [d for d in sdk_bin.iterdir() if d.is_dir() and re.match(r"^\d+\.", d.name)],
+                key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
+                reverse=True,
+            )
+            for ver in sdk_versions:
+                ucrt = ver / arch_lower / "ucrt"
+                if (ucrt / "ucrtbased.dll").exists():
+                    extra_dirs.append(str(ucrt))
+                    break
+        current_path = os.environ.get("PATH", "")
+        path_parts = current_path.split(os.pathsep) if current_path else []
+        normalized = {os.path.normcase(p) for p in path_parts}
+        prepend = [d for d in extra_dirs if os.path.normcase(d) not in normalized]
+        if prepend:
+            os.environ["PATH"] = os.pathsep.join(prepend + path_parts)
+
+    def _arm64_platform_flag(self, generator_args: List[str]) -> List[str]:
+        """Return ['-A ARM64'] when the active CMake generator accepts a platform
+        selector.""" 
+        if not (sys.platform.startswith("win32") and platform.machine() == "ARM64"):
+            return []
+        args = generator_args or []
+        for index, arg in enumerate(args):
+            if arg == "-G" and index + 1 < len(args):
+                return ["-A ARM64"] if "Visual Studio" in args[index + 1] else []
+            if arg.startswith("-G") and arg != "-G":
+                generator = arg[2:].lstrip("=").strip()
+                return ["-A ARM64"] if "Visual Studio" in generator else []
+        return ["-A ARM64"]
+
     def _cmake_configure(self, extra_args: List[str] = None):
         options = self.get_cmake_options()
         if extra_args:
             options.extend(extra_args)
+        options.extend(self._arm64_platform_flag(extra_args))
         options.append(
             ".."
         )  # Because the source code is located one directory up from our build location
@@ -1401,7 +1483,11 @@ class Compiler:
             extra_args.append(
                 "-D VTK_MODULE_ENABLE_VTK_ioss=NO",  # Workaround for bug in Visual Studio MSVC 143
             )
-            extra_args.append("-D CMAKE_CXX_MP_FLAG=YES")
+            if self.mode == BuildMode.DEBUG:
+                # Avoid a race condition with the way VS builds PDBs
+                extra_args.extend(["-G", "Ninja"])
+            else:
+                extra_args.append("-D CMAKE_CXX_MP_FLAG=YES")
 
         print("  (VTK is big, this will take some time)")
 
@@ -1581,13 +1667,23 @@ class Compiler:
             install_dir = install_dir.replace("\\", "/")
             vtk_include_dir = vtk_include_dir.replace("\\", "/")
         extra_args = [
-            f"-D CMAKE_MODULE_PATH={install_dir}/lib/cmake;{install_dir}/share/cmake;{install_dir}"
+            f"-D CMAKE_MODULE_PATH={install_dir}/lib/cmake;{install_dir}/share/cmake;{install_dir}",
             f"-D TCL_DIR={install_dir}/include",
             f"-D TK_DIR={install_dir}/include",
             f"-D FREETYPE_DIR={install_dir}/lib/cmake",
             f"-D VTK_DIR={install_dir}/lib/cmake",
             f"-D 3RDPARTY_VTK_INCLUDE_DIRS={vtk_include_dir}",
             f"-D EIGEN_DIR={install_dir}/share/eigen3/cmake",
+            f"-D 3RDPARTY_TCL_DLL_DIR={install_dir}/bin",
+            f"-D 3RDPARTY_TCL_LIBRARY_DIR={install_dir}/lib",
+            f"-D 3RDPARTY_TCL_INCLUDE_DIR={install_dir}/include",
+            f"-D 3RDPARTY_TCL_DLL={install_dir}/bin/tcl86.dll",
+            f"-D 3RDPARTY_TCL_LIBRARY={install_dir}/lib/tcl86.lib",
+            f"-D 3RDPARTY_TK_DLL_DIR={install_dir}/bin",
+            f"-D 3RDPARTY_TK_LIBRARY_DIR={install_dir}/lib",
+            f"-D 3RDPARTY_TK_INCLUDE_DIR={install_dir}/include",
+            f"-D 3RDPARTY_TK_DLL={install_dir}/bin/tk86.dll",
+            f"-D 3RDPARTY_TK_LIBRARY={install_dir}/lib/tk86.lib",
             "-D USE_VTK=On",
             "-D USE_FREETYPE=On",
             "-D USE_RAPIDJSON=On",
@@ -2004,6 +2100,7 @@ class Compiler:
         try:
             options = self.get_cmake_options()
             options.extend(extra_args)
+            options.extend(self._arm64_platform_flag(extra_args))
             options.append("../cmake")
             self._run_cmake(options)
             self._cmake_build()
