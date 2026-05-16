@@ -329,9 +329,13 @@ def resolve_msvc_tools_version(vs_install_path: str, requested: str) -> str:
         if not d.is_dir():
             continue
         name = d.name
-        if name == requested or name.startswith(requested + "."):
-            if _msvc_dir_has_cl(d):
-                matches.append(name)
+        if not name.startswith(requested):
+            continue
+        next_char = name[len(requested) : len(requested) + 1]
+        if next_char and next_char != "." and not next_char.isdigit():
+            continue
+        if _msvc_dir_has_cl(d):
+            matches.append(name)
     if not matches:
         return None
     matches.sort(key=lambda v: tuple(int(p) for p in v.split(".") if p.isdigit()), reverse=True)
