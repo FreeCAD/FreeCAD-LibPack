@@ -1,0 +1,9 @@
+@@@ common_arm64.h @@@
+@@ -2306,16 +2306,48 @@
+ (void)%7B%0A
++#ifdef C_MSVC%0A  return 0;%0A#else%0A
+   uint64
+@@ -2587,16 +2587,23 @@
+ nt)ret;%0A
++#endif%0A
+ %7D%0A%0Astati
