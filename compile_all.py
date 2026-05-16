@@ -1198,9 +1198,7 @@ class Compiler:
                     continue
                 candidates = [d for d in redist.iterdir() if d.is_dir()]
                 if toolset_prefix:
-                    matching = [
-                        d for d in candidates if d.name.startswith(toolset_prefix + ".")
-                    ]
+                    matching = [d for d in candidates if d.name.startswith(toolset_prefix + ".")]
                     if matching:
                         candidates = matching
                 candidates.sort(
@@ -1208,9 +1206,7 @@ class Compiler:
                     reverse=True,
                 )
                 for ver in candidates:
-                    for crt_dir in ver.glob(
-                        f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"
-                    ):
+                    for crt_dir in ver.glob(f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"):
                         if (crt_dir / "vcruntime140d.dll").exists():
                             extra_dirs.append(str(crt_dir))
                             break
@@ -1239,7 +1235,7 @@ class Compiler:
 
     def _arm64_platform_flag(self, generator_args: List[str]) -> List[str]:
         """Return ['-A ARM64'] when the active CMake generator accepts a platform
-        selector.""" 
+        selector."""
         if not (sys.platform.startswith("win32") and platform.machine() == "ARM64"):
             return []
         args = generator_args or []
