@@ -453,6 +453,29 @@ def install_pdb_sidecars(
     return copied
 
 
+def move_pdbs_to_sidecar(base_path: str, sidecar_path: str) -> int:
+    """Move every .pdb under ``base_path`` into ``sidecar_path``, preserving relative paths.
+    Returns the number of files moved. Used by Release builds to ship PDBs separately."""
+    print(f"Moving PDB debug-symbol files to sidecar: {sidecar_path}")
+    moved = 0
+    base_abs = os.path.abspath(base_path)
+    for root, _, files in os.walk(base_path):
+        for name in files:
+            if not name.lower().endswith(".pdb"):
+                continue
+            full_path = os.path.join(root, name)
+            relative = os.path.relpath(full_path, base_abs)
+            dest = os.path.join(sidecar_path, relative)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            try:
+                shutil.move(full_path, dest)
+                moved += 1
+            except OSError as e:
+                print(f"Failed to move {full_path} to {dest}: {e}")
+    print(f"  Moved {moved} PDB files")
+    return moved
+
+
 def delete_pdb_files(base_path: str) -> int:
     """Remove every Microsoft debug-symbol (.pdb) file from the LibPack.
 

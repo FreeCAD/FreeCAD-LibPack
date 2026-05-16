@@ -352,6 +352,18 @@ class Compiler:
             if python_lib:
                 base.append(f"-D Python_LIBRARY={python_lib}")
                 base.append(f"-D Python3_LIBRARY={python_lib}")
+        if self.mode == BuildMode.RELEASE and sys.platform.startswith("win32"):
+            # Force PDB generation in Release for the PDB sidecar archive.
+            # /OPT:REF /OPT:ICF undo /DEBUG's default of disabling COMDAT folding.
+            base.extend(
+                [
+                    "-D CMAKE_POLICY_DEFAULT_CMP0141=NEW",
+                    "-D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=ProgramDatabase",
+                    "-D CMAKE_EXE_LINKER_FLAGS=/DEBUG /OPT:REF /OPT:ICF",
+                    "-D CMAKE_SHARED_LINKER_FLAGS=/DEBUG /OPT:REF /OPT:ICF",
+                    "-D CMAKE_MODULE_LINKER_FLAGS=/DEBUG /OPT:REF /OPT:ICF",
+                ]
+            )
         if self.boost_include_path:
             base.append(f"-D Boost_INCLUDE_DIR={self.boost_include_path}")
         if self.coin_cmake_path:
@@ -2037,9 +2049,5 @@ class Compiler:
         shutil.copytree(source, target)
 
     def _build_ifcopenshell_debug(self):
-        """IfcOpenShell is not built in Debug mode for LibPack 3.5. ifcopenshell-python-0.8.5
-        does not compile against OCCT 8.0.0 (Handle_<T> aliases, container-typedef
-        transitive visibility, NCollection_LinearVector::push_back, and an internal OCCT 8
-        BRepTopAdaptor_FClass2d / CSLib_Class2d break all bite the source build). Revisit
-        when IfcOpenShell upstream adapts to OCCT 8."""
+        """Not built in Debug for LibPack 3.5: IfcOpenShell 0.8.5 does not compile against OCCT 8."""
         print("  Skipping ifcopenshell in Debug mode: not yet OCCT 8 compatible upstream.")

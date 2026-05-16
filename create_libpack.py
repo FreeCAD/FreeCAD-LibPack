@@ -543,13 +543,12 @@ if __name__ == "__main__":
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files
         base_path = compile_all.libpack_dir(config_dict, mode)
-        if mode == compile_all.BuildMode.DEBUG:
-            extra_pdb_search_dirs = [
-                item["fallback-build-dir"]
-                for item in config_dict.get("content", [])
-                if "fallback-build-dir" in item
-            ]
-            path_cleaner.install_pdb_sidecars(base_path, os.getcwd(), extra_pdb_search_dirs)
+        extra_pdb_search_dirs = [
+            item["fallback-build-dir"]
+            for item in config_dict.get("content", [])
+            if "fallback-build-dir" in item
+        ]
+        path_cleaner.install_pdb_sidecars(base_path, os.getcwd(), extra_pdb_search_dirs)
         path_cleaner.delete_extraneous_files(base_path)
         path_cleaner.remove_local_path_from_cmake_files(base_path)
         path_cleaner.correct_opencascade_freetype_ref(base_path)
@@ -564,10 +563,14 @@ if __name__ == "__main__":
         path_cleaner.delete_documentation(base_path)
         path_cleaner.delete_occt_sample_data(base_path)
         path_cleaner.delete_python_test_suites(base_path)
-        # if mode == compile_all.BuildMode.RELEASE:
-        #     path_cleaner.delete_pdb_files(base_path)
+        pdb_sidecar_path = None
+        if mode == compile_all.BuildMode.RELEASE:
+            pdb_sidecar_path = base_path + "-PDB"
+            path_cleaner.move_pdbs_to_sidecar(base_path, pdb_sidecar_path)
 
         write_manifest(config_dict, mode)
 
         if args["archive"]:
             create_archive(base_path)
+            if pdb_sidecar_path is not None and os.path.isdir(pdb_sidecar_path):
+                create_archive(pdb_sidecar_path)
