@@ -1045,7 +1045,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
                 print("  Not rebuilding Qt, it is already in the LibPack")
                 return
-        self._prepend_debug_crt_to_path()
+        self._prepend_runtime_dirs_to_path()
 
         build_dir = os.path.join(os.getcwd(), f"build-{str(self.mode).lower()}")
         if len(build_dir) > 20:
@@ -1192,53 +1192,65 @@ class Compiler:
                 print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
-    def _prepend_debug_crt_to_path(self) -> None:
-        """Make the LibPack's debug DLLs (Qt's zd.dll, libpng16d.dll, and similar) and
-        the MSVC and Universal CRT debug DLLs (msvcp140d.dll, vcruntime140d.dll,
-        ucrtbased.dll) discoverable by freshly-built debug tools"""
-        if self.mode != BuildMode.DEBUG or sys.platform != "win32":
+    def _prepend_runtime_dirs_to_path(self) -> None:
+        """Make the LibPack's just-installed runtime DLLs (z.dll/zd.dll,
+        libpng16/libpng16d, and similar) discoverable by freshly-built tools that the
+        build invokes as subprocesses (Qt's rcc.exe, moc.exe, qlalr.exe are the first
+        instances). In Debug mode also add the MSVC and Universal CRT debug-only
+        redist directories (msvcp140d.dll, vcruntime140d.dll, ucrtbased.dll), which
+        vcvars*.bat does not put on PATH because debug binaries are not generally
+        redistributable. Without this, the tools fail with STATUS_DLL_NOT_FOUND
+        (0xC0000135) the first time cmake --build runs them. Windows only."""
+        if sys.platform != "win32":
             return
-        arch_lower = "arm64" if platform.machine() == "ARM64" else "x64"
-        toolset_prefix = ""
-        if self.msvc_tools_version:
-            toolset_prefix = ".".join(self.msvc_tools_version.split(".")[:2])
         extra_dirs: List[str] = [os.path.join(self.install_dir, "bin")]
-        vs_root = pathlib.Path("C:/Program Files/Microsoft Visual Studio")
-        if vs_root.is_dir():
-            for vs_major in sorted(vs_root.iterdir(), reverse=True):
-                redist = vs_major / "Community" / "VC" / "Redist" / "MSVC"
-                if not redist.is_dir():
-                    continue
-                candidates = [d for d in redist.iterdir() if d.is_dir()]
-                if toolset_prefix:
-                    matching = [d for d in candidates if d.name.startswith(toolset_prefix + ".")]
-                    if matching:
-                        candidates = matching
-                candidates.sort(
+        if self.mode == BuildMode.DEBUG:
+            arch_lower = "arm64" if platform.machine() == "ARM64" else "x64"
+            toolset_prefix = ""
+            if self.msvc_tools_version:
+                toolset_prefix = ".".join(self.msvc_tools_version.split(".")[:2])
+            vs_root = pathlib.Path("C:/Program Files/Microsoft Visual Studio")
+            crt_added = False
+            if vs_root.is_dir():
+                for vs_major in sorted(vs_root.iterdir(), reverse=True):
+                    redist = vs_major / "Community" / "VC" / "Redist" / "MSVC"
+                    if not redist.is_dir():
+                        continue
+                    candidates = [d for d in redist.iterdir() if d.is_dir()]
+                    if toolset_prefix:
+                        matching = [
+                            d for d in candidates if d.name.startswith(toolset_prefix + ".")
+                        ]
+                        if matching:
+                            candidates = matching
+                    candidates.sort(
+                        key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
+                        reverse=True,
+                    )
+                    for ver in candidates:
+                        for crt_dir in ver.glob(
+                            f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"
+                        ):
+                            if (crt_dir / "vcruntime140d.dll").exists():
+                                extra_dirs.append(str(crt_dir))
+                                crt_added = True
+                                break
+                        if crt_added:
+                            break
+                    if crt_added:
+                        break
+            sdk_bin = pathlib.Path("C:/Program Files (x86)/Windows Kits/10/bin")
+            if sdk_bin.is_dir():
+                sdk_versions = sorted(
+                    [d for d in sdk_bin.iterdir() if d.is_dir() and re.match(r"^\d+\.", d.name)],
                     key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
                     reverse=True,
                 )
-                for ver in candidates:
-                    for crt_dir in ver.glob(f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"):
-                        if (crt_dir / "vcruntime140d.dll").exists():
-                            extra_dirs.append(str(crt_dir))
-                            break
-                    if len(extra_dirs) > 1:
+                for ver in sdk_versions:
+                    ucrt = ver / arch_lower / "ucrt"
+                    if (ucrt / "ucrtbased.dll").exists():
+                        extra_dirs.append(str(ucrt))
                         break
-                if len(extra_dirs) > 1:
-                    break
-        sdk_bin = pathlib.Path("C:/Program Files (x86)/Windows Kits/10/bin")
-        if sdk_bin.is_dir():
-            sdk_versions = sorted(
-                [d for d in sdk_bin.iterdir() if d.is_dir() and re.match(r"^\d+\.", d.name)],
-                key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
-                reverse=True,
-            )
-            for ver in sdk_versions:
-                ucrt = ver / arch_lower / "ucrt"
-                if (ucrt / "ucrtbased.dll").exists():
-                    extra_dirs.append(str(ucrt))
-                    break
         current_path = os.environ.get("PATH", "")
         path_parts = current_path.split(os.pathsep) if current_path else []
         normalized = {os.path.normcase(p) for p in path_parts}
