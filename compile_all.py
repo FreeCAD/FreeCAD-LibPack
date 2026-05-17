@@ -352,6 +352,18 @@ class Compiler:
             if python_lib:
                 base.append(f"-D Python_LIBRARY={python_lib}")
                 base.append(f"-D Python3_LIBRARY={python_lib}")
+        if self.mode == BuildMode.RELEASE and sys.platform.startswith("win32"):
+            # Force PDB generation in Release for the PDB sidecar archive.
+            # /OPT:REF /OPT:ICF undo /DEBUG's default of disabling COMDAT folding.
+            base.extend(
+                [
+                    "-D CMAKE_POLICY_DEFAULT_CMP0141=NEW",
+                    "-D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=ProgramDatabase",
+                    "-D CMAKE_EXE_LINKER_FLAGS=/DEBUG /OPT:REF /OPT:ICF",
+                    "-D CMAKE_SHARED_LINKER_FLAGS=/DEBUG /OPT:REF /OPT:ICF",
+                    "-D CMAKE_MODULE_LINKER_FLAGS=/DEBUG /OPT:REF /OPT:ICF",
+                ]
+            )
         if self.boost_include_path:
             base.append(f"-D Boost_INCLUDE_DIR={self.boost_include_path}")
         if self.coin_cmake_path:
@@ -1033,7 +1045,7 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "metatypes")):
                 print("  Not rebuilding Qt, it is already in the LibPack")
                 return
-        self._prepend_debug_crt_to_path()
+        self._prepend_runtime_dirs_to_path()
 
         build_dir = os.path.join(os.getcwd(), f"build-{str(self.mode).lower()}")
         if len(build_dir) > 20:
@@ -1043,8 +1055,9 @@ class Compiler:
                 '  path name for the actual build directory (e.g., "C:\\temp").\n'
             )
             if "fallback-build-dir" in options:
-                print(f"  Using fallback build directory {options['fallback-build-dir']}")
-                build_dir = options["fallback-build-dir"]
+                mode_suffix = "d" if self.mode == BuildMode.DEBUG else "r"
+                build_dir = os.path.join(options["fallback-build-dir"], mode_suffix)
+                print(f"  Using fallback build directory {build_dir}")
             else:
                 print(
                     f"  Attempting to use default path {build_dir}. \n\nIf the build fails, consider making a temp directory to work in.\n"
@@ -1179,53 +1192,65 @@ class Compiler:
                 print(e.output.decode("utf-8", errors="replace"))
             exit(e.returncode)
 
-    def _prepend_debug_crt_to_path(self) -> None:
-        """Make the LibPack's debug DLLs (Qt's zd.dll, libpng16d.dll, and similar) and
-        the MSVC and Universal CRT debug DLLs (msvcp140d.dll, vcruntime140d.dll,
-        ucrtbased.dll) discoverable by freshly-built debug tools"""
-        if self.mode != BuildMode.DEBUG or sys.platform != "win32":
+    def _prepend_runtime_dirs_to_path(self) -> None:
+        """Make the LibPack's just-installed runtime DLLs (z.dll/zd.dll,
+        libpng16/libpng16d, and similar) discoverable by freshly-built tools that the
+        build invokes as subprocesses (Qt's rcc.exe, moc.exe, qlalr.exe are the first
+        instances). In Debug mode also add the MSVC and Universal CRT debug-only
+        redist directories (msvcp140d.dll, vcruntime140d.dll, ucrtbased.dll), which
+        vcvars*.bat does not put on PATH because debug binaries are not generally
+        redistributable. Without this, the tools fail with STATUS_DLL_NOT_FOUND
+        (0xC0000135) the first time cmake --build runs them. Windows only."""
+        if sys.platform != "win32":
             return
-        arch_lower = "arm64" if platform.machine() == "ARM64" else "x64"
-        toolset_prefix = ""
-        if self.msvc_tools_version:
-            toolset_prefix = ".".join(self.msvc_tools_version.split(".")[:2])
         extra_dirs: List[str] = [os.path.join(self.install_dir, "bin")]
-        vs_root = pathlib.Path("C:/Program Files/Microsoft Visual Studio")
-        if vs_root.is_dir():
-            for vs_major in sorted(vs_root.iterdir(), reverse=True):
-                redist = vs_major / "Community" / "VC" / "Redist" / "MSVC"
-                if not redist.is_dir():
-                    continue
-                candidates = [d for d in redist.iterdir() if d.is_dir()]
-                if toolset_prefix:
-                    matching = [d for d in candidates if d.name.startswith(toolset_prefix + ".")]
-                    if matching:
-                        candidates = matching
-                candidates.sort(
+        if self.mode == BuildMode.DEBUG:
+            arch_lower = "arm64" if platform.machine() == "ARM64" else "x64"
+            toolset_prefix = ""
+            if self.msvc_tools_version:
+                toolset_prefix = ".".join(self.msvc_tools_version.split(".")[:2])
+            vs_root = pathlib.Path("C:/Program Files/Microsoft Visual Studio")
+            crt_added = False
+            if vs_root.is_dir():
+                for vs_major in sorted(vs_root.iterdir(), reverse=True):
+                    redist = vs_major / "Community" / "VC" / "Redist" / "MSVC"
+                    if not redist.is_dir():
+                        continue
+                    candidates = [d for d in redist.iterdir() if d.is_dir()]
+                    if toolset_prefix:
+                        matching = [
+                            d for d in candidates if d.name.startswith(toolset_prefix + ".")
+                        ]
+                        if matching:
+                            candidates = matching
+                    candidates.sort(
+                        key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
+                        reverse=True,
+                    )
+                    for ver in candidates:
+                        for crt_dir in ver.glob(
+                            f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"
+                        ):
+                            if (crt_dir / "vcruntime140d.dll").exists():
+                                extra_dirs.append(str(crt_dir))
+                                crt_added = True
+                                break
+                        if crt_added:
+                            break
+                    if crt_added:
+                        break
+            sdk_bin = pathlib.Path("C:/Program Files (x86)/Windows Kits/10/bin")
+            if sdk_bin.is_dir():
+                sdk_versions = sorted(
+                    [d for d in sdk_bin.iterdir() if d.is_dir() and re.match(r"^\d+\.", d.name)],
                     key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
                     reverse=True,
                 )
-                for ver in candidates:
-                    for crt_dir in ver.glob(f"debug_nonredist/{arch_lower}/Microsoft.VC*.DebugCRT"):
-                        if (crt_dir / "vcruntime140d.dll").exists():
-                            extra_dirs.append(str(crt_dir))
-                            break
-                    if len(extra_dirs) > 1:
+                for ver in sdk_versions:
+                    ucrt = ver / arch_lower / "ucrt"
+                    if (ucrt / "ucrtbased.dll").exists():
+                        extra_dirs.append(str(ucrt))
                         break
-                if len(extra_dirs) > 1:
-                    break
-        sdk_bin = pathlib.Path("C:/Program Files (x86)/Windows Kits/10/bin")
-        if sdk_bin.is_dir():
-            sdk_versions = sorted(
-                [d for d in sdk_bin.iterdir() if d.is_dir() and re.match(r"^\d+\.", d.name)],
-                key=lambda d: tuple(int(p) for p in d.name.split(".") if p.isdigit()),
-                reverse=True,
-            )
-            for ver in sdk_versions:
-                ucrt = ver / arch_lower / "ucrt"
-                if (ucrt / "ucrtbased.dll").exists():
-                    extra_dirs.append(str(ucrt))
-                    break
         current_path = os.environ.get("PATH", "")
         path_parts = current_path.split(os.pathsep) if current_path else []
         normalized = {os.path.normcase(p) for p in path_parts}
@@ -1439,18 +1464,20 @@ class Compiler:
         env["VULKAN_SDK"] = "None"
         if sys.platform.startswith("win32"):
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
-            args = [
-                *self.init_script,
-                "&",
-                python,
-                "setup.py",
-                "install",
-                qtpaths,
-                ssl,
-                parallel,
-            ]
-            if self.mode == BuildMode.DEBUG:
-                args.append("--debug")
+            python_libs = os.path.join(self.install_dir, "bin", "libs")
+            init_call = "call " + subprocess.list2cmdline(self.init_script)
+            setup_cmd = subprocess.list2cmdline(
+                [python, "setup.py", "install", qtpaths, ssl, parallel]
+                + (["--debug"] if self.mode == BuildMode.DEBUG else [])
+            )
+            wrapper_path = os.path.abspath("build_pyside_wrapper.bat")
+            with open(wrapper_path, "w", encoding="utf-8") as f:
+                f.write("@echo off\n")
+                f.write(f"{init_call}\n")
+                f.write("if errorlevel 1 exit /b %ERRORLEVEL%\n")
+                f.write(f"set LIB={python_libs};%LIB%\n")
+                f.write(f"{setup_cmd}\n")
+            args = [wrapper_path]
         else:
             ssl = "--openssl=" + os.path.join(self.install_dir, "bin", "DLLs")
             args = [python, "setup.py", "install", qtpaths, ssl]
@@ -1960,8 +1987,7 @@ class Compiler:
         # LibPack's site-packages.
         site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
         if self.skip_existing:
-            sentinel_name = "ocl_d.pyd" if self.mode == BuildMode.DEBUG else "ocl.pyd"
-            if os.path.exists(os.path.join(site_packages, "opencamlib", sentinel_name)):
+            if os.path.exists(os.path.join(site_packages, "opencamlib", "ocl.pyd")):
                 print("  Not rebuilding opencamlib, it is already in the LibPack")
                 return
         extra_args = [
@@ -2035,76 +2061,5 @@ class Compiler:
         shutil.copytree(source, target)
 
     def _build_ifcopenshell_debug(self):
-        """Debug-mode source build of IfcOpenShell. fetch_remote_data clones and
-        patches the source for us in Debug because the ifcopenshell entry has
-        both a git-repo and a url-ARM64 (the latter is the Release-only prebuilt
-        zip)."""
-        site_packages = os.path.join(self.install_dir, "bin", "Lib", "site-packages")
-        target = os.path.join(site_packages, "ifcopenshell")
-        if self.skip_existing and os.path.exists(target):
-            print("  Not rebuilding ifcopenshell, it is already in the LibPack")
-            return
-        cwd = os.getcwd()
-        # IfcOpenShell's root CMakeLists.txt lives in the cmake/ subdirectory, not
-        # the repo root. Dependencies (OpenCASCADE, HDF5, LibXml2, VTK) are resolved
-        # through their installed CMake package configs via CMAKE_PREFIX_PATH rather
-        # than passing manual include and library paths, because OCCT installs into a
-        # flat layout (inc/ and libd/) that does not match the conventional layout
-        # IfcOpenShell's Find modules assume.
-        ifc_install_dir = self.install_dir.replace("\\", "/")
-        extra_args = [
-            "-G",
-            "Ninja",
-            "-D CMAKE_CXX_STANDARD=17",
-            f"-D CMAKE_PREFIX_PATH={ifc_install_dir}",
-            f"-D BOOST_ROOT={ifc_install_dir}",
-            "-D Boost_USE_STATIC_LIBS=OFF",
-            f"-D HDF5_DIR={ifc_install_dir}/cmake",
-            f"-D PYTHON_EXECUTABLE={self.python_exe()}",
-            "-D BUILD_IFCPYTHON=ON",
-            "-D BUILD_IFCMAX=OFF",
-            "-D BUILD_GEOMSERVER=OFF",
-            "-D BUILD_CONVERT=OFF",
-            "-D BUILD_EXAMPLES=OFF",
-            "-D BUILD_TESTING=OFF",
-            "-D WITH_CGAL=OFF",
-            "-D COLLADA_SUPPORT=OFF",
-            "-D HDF5_SUPPORT=OFF",
-            "-D USE_DEBUG_PYTHON=ON",
-            "-D BUILD_ONLY_COMMON_SCHEMAS=ON",
-            "-D BUILD_SHARED_LIBS=OFF",
-        ]
-        # The source layout puts the CMakeLists in cmake/, not the repo root, so we
-        # cannot use the standard _build_standard_cmake helper which assumes "..".
-        build_dir = os.path.join(cwd, "build-debug")
-        if os.path.exists(build_dir):
-            shutil.rmtree(build_dir, onerror=remove_readonly)
-        os.makedirs(build_dir)
-        os.chdir(build_dir)
-        # IfcOpenShell's CMakeLists.txt and svgfill/CMakeLists.txt both contain
-        # blocks guarded by `if(WIN32 AND NOT DEFINED ENV{CONDA_BUILD})` that force
-        # `Boost_USE_STATIC_LIBS=ON` as a non-cache variable, which shadows any -D
-        # we pass and causes Boost's modular shared configs to declare themselves
-        # version-incompatible. FindHDF5.cmake similarly takes a Windows naming
-        # path that does not match our LibPack when CONDA_BUILD is unset. Setting
-        # CONDA_BUILD diverts all three sites to the branch that uses the package
-        # configs we install, with no other side effects in IfcOpenShell.
-        prev_conda_build = os.environ.get("CONDA_BUILD")
-        os.environ["CONDA_BUILD"] = "1"
-        old_strict_mode = self.strict_mode
-        self.strict_mode = False
-        try:
-            options = self.get_cmake_options()
-            options.extend(extra_args)
-            options.extend(self._arm64_platform_flag(extra_args))
-            options.append("../cmake")
-            self._run_cmake(options)
-            self._cmake_build()
-            self._cmake_install()
-        finally:
-            self.strict_mode = old_strict_mode
-            if prev_conda_build is None:
-                os.environ.pop("CONDA_BUILD", None)
-            else:
-                os.environ["CONDA_BUILD"] = prev_conda_build
-            os.chdir(cwd)
+        """Not built in Debug for LibPack 3.5: IfcOpenShell 0.8.5 does not compile against OCCT 8."""
+        print("  Skipping ifcopenshell in Debug mode: not yet OCCT 8 compatible upstream.")
