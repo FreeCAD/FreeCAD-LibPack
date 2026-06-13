@@ -67,7 +67,7 @@ class TestPathCleaner(unittest.TestCase):
         fake_cmake_data = (
             '    set(_BOOST_CMAKEDIR "Z:/FreeCAD/FreeCAD-LibPack-1.0.0-v3.0.0-Release/lib/cmake")\n'
         )
-        cleaned_data = '    set(_BOOST_CMAKEDIR "${CMAKE_CURRENT_SOURCE_DIR}/../../lib/cmake")\n'
+        cleaned_data = '    set(_BOOST_CMAKEDIR "${CMAKE_CURRENT_LIST_DIR}/../../lib/cmake")\n'
 
         # Act
         with patch("builtins.open", mock_open(read_data=fake_cmake_data)) as open_mock:
@@ -79,6 +79,26 @@ class TestPathCleaner(unittest.TestCase):
             # Assert (still in the context manager, so we can query the mocked file)
             open_mock().write.assert_called_with(cleaned_data)
 
+    def test_escaped_list_dir_reference_is_not_corrupted(self):
+        """CMake helper modules (VTK's vtkModule.cmake, Qt's Qt6CoreMacros.cmake) emit deferred
+        references such as \\${CMAKE_CURRENT_LIST_DIR} where the backslashes are escape characters,
+        not path separators. A file that does not contain the install prefix must be left byte-for-byte
+        unchanged so those escapes survive."""
+        # Arrange: this line mirrors VTK vtkModule.cmake and contains no install path.
+        fake_cmake_data = (
+            '    "set(_vtk_module_import_prefix \\"\\${CMAKE_CURRENT_LIST_DIR}\\")\\n")\n'
+        )
+
+        # Act
+        with patch("builtins.open", mock_open(read_data=fake_cmake_data)) as open_mock:
+            path_cleaner.remove_local_path_from_cmake_file(
+                "Z:\\FreeCAD\\FreeCAD-LibPack-1.0.0-v3.0.0-Release\\",
+                "Z:\\FreeCAD\\FreeCAD-LibPack-1.0.0-v3.0.0-Release\\lib\\cmake\\vtkModule.cmake",
+            )
+
+            # Assert: the file is rewritten verbatim, the escaped reference is preserved.
+            open_mock().write.assert_called_with(fake_cmake_data)
+
     def test_remove_local_path_from_cmake_file_bad_path(self):
         """There is at least one package (MEDfile) that puts in a Windows-style path into cMake, even though they
         should not do so. Make sure we handle that."""
@@ -86,7 +106,7 @@ class TestPathCleaner(unittest.TestCase):
         fake_cmake_data = (
             'SET(_hdf5_path "Z:\\FreeCAD\\FreeCAD-LibPack-1.0.0-v3.0.0-Release/share/cmake/")\n'
         )
-        cleaned_data = 'SET(_hdf5_path "${CMAKE_CURRENT_SOURCE_DIR}/../../share/cmake/")\n'
+        cleaned_data = 'SET(_hdf5_path "${CMAKE_CURRENT_LIST_DIR}/../../share/cmake/")\n'
 
         # Act
         with patch("builtins.open", mock_open(read_data=fake_cmake_data)) as open_mock:
