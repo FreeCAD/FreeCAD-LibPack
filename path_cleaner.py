@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # SPDX-FileNotice: Part of the FreeCAD project.
 
-#  What I really want to do is clean for release. So replace explicit paths with references to CMAKE_CURRENT_SOURCE_DIR
+#  What I really want to do is clean for release. So replace explicit paths with references to CMAKE_CURRENT_LIST_DIR
 # in cMake files, and also delete some extra files that are spewed out by various installers. The various licenses
 # should probably be consolidated.
 
@@ -58,37 +58,54 @@ def remove_local_path_from_cmake_files(base_path: str) -> None:
 
 
 def remove_local_path_from_cmake_file(base_path: str, file_to_clean: str) -> None:
-    """Modify a cMake file to remove base_path and replace it with ${CMAKE_CURRENT_SOURCE_DIR}. WARNING: effectively
-    edits the file in-place, no backup is made."""
+    """Modify a cMake file to remove base_path and replace it with ${CMAKE_CURRENT_LIST_DIR}. WARNING: effectively
+    edits the file in-place, no backup is made.
+
+    CMAKE_CURRENT_LIST_DIR is the directory of the .cmake file being processed, so a reference relative to it
+    resolves correctly wherever the LibPack is unpacked. CMAKE_CURRENT_SOURCE_DIR must not be used here: when a
+    package config is loaded through find_package it points at the consuming project's source tree, not the config
+    file, which is why the MEDFile and Netgen configs produced unusable targets (see issue #82)."""
     depth_string = create_depth_string(base_path, file_to_clean)
     with open(file_to_clean, "r", encoding="UTF-8") as f:
         contents = f.read()
 
+    original = contents
     base_path_native = base_path.rstrip("\\/")
-    cmake_replacement = "${CMAKE_CURRENT_SOURCE_DIR}/" + depth_string[:-1]
+    cmake_replacement = "${CMAKE_CURRENT_LIST_DIR}/" + depth_string[:-1]
     contents = contents.replace(base_path_native, cmake_replacement)
     cmake_base_path = base_path_native.replace("\\", "/")
     if cmake_base_path != base_path_native:
         contents = contents.replace(cmake_base_path, cmake_replacement)
 
-    contents = _normalize_slashes_in_cmake_paths(contents)
+    # Slash normalization only makes sense for paths this function just rewrote. Files that never
+    # contained the install prefix (CMake helper modules such as VTK's vtkModule.cmake or Qt's
+    # Qt6CoreMacros.cmake) are left untouched, so their literal `\${CMAKE_CURRENT_LIST_DIR}` escape
+    # sequences are never mistaken for paths.
+    if contents != original:
+        contents = _normalize_slashes_in_cmake_paths(contents)
 
     with open(file_to_clean, "w", encoding="utf-8") as f:
         f.write(contents)
 
 
-_QUOTED_CMAKE_PATH_RE = re.compile(r'"([^"\n]*\$\{CMAKE_CURRENT_SOURCE_DIR\}[^"\n]*)"')
+_QUOTED_CMAKE_PATH_RE = re.compile(r'"([^"\n]*(?<!\\)\$\{CMAKE_CURRENT_LIST_DIR\}[^"\n]*)"')
 
 
 def _normalize_slashes_in_cmake_paths(contents: str) -> str:
     """Some upstreams (Netgen, others) record Windows-style paths with backslashes
     in their installed CMake configs. After the prefix substitution above, the
-    install-dir portion is replaced with `${CMAKE_CURRENT_SOURCE_DIR}/...` but any
+    install-dir portion is replaced with `${CMAKE_CURRENT_LIST_DIR}/...` but any
     trailing backslashes inside the quoted string remain, producing strings such
-    as `"${CMAKE_CURRENT_SOURCE_DIR}/..\\bin\\python_d.exe"`. CMake accepts
+    as `"${CMAKE_CURRENT_LIST_DIR}/..\\bin\\python_d.exe"`. CMake accepts
     forward slashes universally on Windows; quoted strings that contain a
-    `${CMAKE_CURRENT_SOURCE_DIR}` reference are paths, not CMake escape sequences,
-    so it is safe to normalize backslashes within them."""
+    `${CMAKE_CURRENT_LIST_DIR}` reference are paths, not CMake escape sequences,
+    so it is safe to normalize backslashes within them.
+
+    The `(?<!\\)` lookbehind keeps this away from CMake code that writes out
+    deferred references such as `\\${CMAKE_CURRENT_LIST_DIR}` (an escaped dollar
+    sign): there the surrounding backslashes are escape characters, not path
+    separators, and rewriting them corrupts the generated CMake (see VTK's
+    vtkModule.cmake and Qt's Qt6CoreMacros.cmake)."""
 
     def _normalize(match: re.Match) -> str:
         return '"' + match.group(1).replace("\\", "/") + '"'
@@ -125,9 +142,7 @@ def correct_opencascade_freetype_ref(base_path: str):
         path = os.path.join(base_path, "cmake", fix)
         with open(path, "r", encoding="utf-8") as f:
             contents = f.read()
-        contents = contents.replace(
-            "${CMAKE_CURRENT_SOURCE_DIR}/../lib/freetype.lib", "freetype.lib"
-        )
+        contents = contents.replace("${CMAKE_CURRENT_LIST_DIR}/../lib/freetype.lib", "freetype.lib")
         with open(path, "w", encoding="utf-8") as f:
             f.write(contents)
 
