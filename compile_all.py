@@ -385,6 +385,18 @@ class Compiler:
     def compile_all(self):
         # This option borks Tcl by making it find the wrong paths: remove it
         os.environ.pop("NoDefaultCurrentDirectoryInExePath", None)
+        # Keep pip's wheel and HTTP cache inside the build tree rather than the user-global
+        # location (%LOCALAPPDATA%\pip\cache). This isolates the build both ways: wheels built
+        # here never leak into the developer's machine-wide cache, and a stale wheel from
+        # unrelated local pip activity can never be pulled into the LibPack. The directory lives
+        # under working-<mode>/ and so is not part of the shipped LibPack. Setting it in the
+        # environment covers every pip subprocess uniformly (requirements, tooling, pip self-
+        # upgrade, individual installs) regardless of how each call constructs its env.
+        pip_cache_dir = os.path.abspath(
+            os.path.join(os.path.dirname(self.install_dir), "pip-cache")
+        )
+        os.makedirs(pip_cache_dir, exist_ok=True)
+        os.environ["PIP_CACHE_DIR"] = pip_cache_dir
         for item in self.config["content"]:
             # All build methods are named using "build_XXX" where XXX is the name of the package in the config file
             os.chdir(item["name"])
@@ -832,6 +844,9 @@ class Compiler:
             ("lib/libxml2d.lib", "lib/libxml2.lib"),
             ("lib/libxsltd.lib", "lib/libxslt.lib"),
             ("lib/libexsltd.lib", "lib/libexslt.lib"),
+            # lxml's setup.py hardcodes 'iconv' in its Windows link line; win-iconv builds with
+            # the debug 'd' postfix, so expose iconvd.lib under the undecorated name it expects.
+            ("lib/iconvd.lib", "lib/iconv.lib"),
         )
         for src, dst in aliases:
             src_path = os.path.join(self.install_dir, src)
@@ -917,6 +932,24 @@ class Compiler:
                 config_settings=config_settings + (("setup-args", "-Duse-pythran=false"),),
             )
 
+    def _native_pkgconf_path(self, env) -> Optional[str]:
+        """Return the path to pkgconf-pypi's bundled native pkgconf executable, or None if the
+        pkgconf package is not yet installed in the LibPack. Uses the package's documented
+        get_executable() API rather than hardcoding its internal .bin layout."""
+        try:
+            result = subprocess.run(
+                [self.python_exe(), "-c", "import pkgconf; print(pkgconf.get_executable())"],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+        except OSError:
+            return None
+        if result.returncode != 0:
+            return None
+        path = result.stdout.strip()
+        return path if path and os.path.exists(path) else None
+
     def _run_pip_install(
         self, requirements, no_build_isolation, no_binary_packages, config_settings=()
     ):
@@ -971,6 +1004,18 @@ class Compiler:
             # without this, pkg-config silently returns no flags and lxml's compile
             # cannot find <libxml/xmlversion.h>.
             env["FORCE_PKGCONF_PYPI"] = "1"
+            # lxml's setup.py (and meson) honor the PKG_CONFIG environment variable to locate
+            # the pkg-config executable. Point it straight at pkgconf-pypi's bundled native
+            # binary rather than its pkg-config.exe console-script wrapper: under Python 3.14 the
+            # wrapper's subinterpreter entrypoint intermittently returns no flags at all, which
+            # makes lxml fall back to a bare "/usr/include/libxml2" and fail to find
+            # <libxml/xmlversion.h>. The native binary has no such failure mode. pkgconf is
+            # installed as part of _DEBUG_BUILD_REQUIRED_TOOLING before the requirements that
+            # consume it, so this resolves on the main install; on the tooling bootstrap pass it
+            # is not yet present and PKG_CONFIG is simply left unset.
+            native_pkgconf = self._native_pkgconf_path(env)
+            if native_pkgconf:
+                env["PKG_CONFIG"] = native_pkgconf
             scripts_dir = os.path.join(self.install_dir, "bin", "Scripts")
             bin_dir = os.path.join(self.install_dir, "bin")
             env["PATH"] = scripts_dir + os.pathsep + bin_dir + os.pathsep + env.get("PATH", "")
@@ -1063,6 +1108,9 @@ class Compiler:
                     f"  Attempting to use default path {build_dir}. \n\nIf the build fails, consider making a temp directory to work in.\n"
                 )
 
+        if os.path.exists(build_dir):
+            print(f"  Removing existing Qt build directory {build_dir}")
+            shutil.rmtree(build_dir, onerror=remove_readonly)
         os.makedirs(build_dir, exist_ok=True)
         old_cwd = os.getcwd()
         os.chdir(build_dir)
@@ -1819,6 +1867,14 @@ class Compiler:
             "-D HDF5_ENABLE_Z_LIB_SUPPORT=ON",
             "-D ZLIB_USE_EXTERNAL=ON",
         ]
+        if sys.platform.startswith("win32"):
+            # HDF5 compiles the same sources into both a static and a shared library. Under the
+            # default Visual Studio generator, MSBuild's project-level parallelism builds those two
+            # targets concurrently, so the shared object PDB is written by competing cl.exe
+            # processes and the build dies with "C1090: PDB API call failed, error code '3'". Ninja
+            # schedules the whole graph through a single job pool and sidesteps that race, the same
+            # workaround build_vtk uses for its PDB race.
+            extra_args.extend(["-G", "Ninja"])
         self._build_standard_cmake(extra_args)
 
     def build_medfile(self, _: None):
