@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"26.3.0",
-    "LibPack-version":"3.5.1beta1",
+    "LibPack-version":"3.5.1",
     "content": [
         {
             "name":"libiconv",
