@@ -2039,6 +2039,7 @@ class Compiler:
         extra_args = [
             "-D CPPTRACE_BUILD_SHARED=ON",
             "-D CPPTRACE_BUILD_TESTING=OFF",
+            "-D CPPTRACE_DISABLE_CXX_20_MODULES=ON",
             "-D CPPTRACE_GET_SYMBOLS_WITH_DBGHELP=ON",
             "-D CPPTRACE_UNWIND_WITH_DBGHELP=ON",
             "-D CPPTRACE_DEMANGLE_WITH_WINAPI=ON",
