@@ -982,6 +982,14 @@ class Compiler:
             env = os.environ.copy()
             env["DISTUTILS_USE_SDK"] = "1"
             env["MSSdk"] = "1"
+            # Force UTF-8 standard I/O for every child process pip spawns. When the parent
+            # environment sets PYTHONIOENCODING to a UTF-16 codec (PyCharm run configurations
+            # can do this), meson-python's build backend launches "meson --version", which
+            # emits its version as UTF-16, then decodes the captured bytes with the locale
+            # codepage. The result is NUL-interleaved text that meson-python's version parser
+            # silently treats as version 0, aborting the scipy source build with a misleading
+            # "Could not find meson version 0.63.3 or newer, found 1.11.1" error.
+            env["PYTHONIOENCODING"] = "utf-8"
             # kiwisolver's pyproject.toml declares dynamic version via setuptools_scm,
             # which falls back to "0.0.0" outside a git checkout. Pip's metadata
             # consistency check then rejects the sdist (requested 1.5.0, got 0.0.0).
