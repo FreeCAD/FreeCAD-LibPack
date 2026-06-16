@@ -991,6 +991,15 @@ class Compiler:
             env = os.environ.copy()
             env["DISTUTILS_USE_SDK"] = "1"
             env["MSSdk"] = "1"
+            # PyCharm sets PYCHARM_HOSTED=1 in the processes it launches. meson honors that
+            # variable and colorizes its console output even when stdout is a pipe rather than
+            # a terminal, appending a trailing "\x1b[0m" ANSI reset to "meson --version".
+            # meson-python's build backend does not strip ANSI sequences before parsing that
+            # output, so the trailing escape makes its version check read meson as version 0
+            # and abort the scipy source build with a misleading "Could not find meson version
+            # 0.63.3 or newer, found 1.11.1" error. NO_COLOR does not override PYCHARM_HOSTED,
+            # so the variable must be removed from the environment the build tools inherit.
+            env.pop("PYCHARM_HOSTED", None)
             # kiwisolver's pyproject.toml declares dynamic version via setuptools_scm,
             # which falls back to "0.0.0" outside a git checkout. Pip's metadata
             # consistency check then rejects the sdist (requested 1.5.0, got 0.0.0).
