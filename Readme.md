@@ -2,14 +2,14 @@
 
 This repository is to provide libraries needed to compile FreeCAD under Windows. It is targeted at developers who want to test against the newest versions of libraries (potentially even compiling a new version themselves) and isn't designed for day-to-day use. Most developers should use the Pixi build system instead.
 
-LibPack release names include the version of FreeCAD they are expected to work with (e.g. LibPack 1.2.0 v3.4.0 is v3.4.0 of the LibPack, designed to work with FreeCAD 1.2dev). The most recent LibPack is typically only designed to work with the current development branch of FreeCAD.
+LibPack release names include the version of FreeCAD they are expected to work with (e.g. LibPack 26.3.0 v3.5.1 is v3.5.1 of the LibPack, designed to work with FreeCAD 26.3dev). The most recent LibPack is typically only designed to work with the current development branch of FreeCAD.
 
-As of May 2026, the LibPack is designed to work with FreeCAD 1.2dev, and is available for both x64 and ARM64 processors, in Release and Debug modes. Note that Debug builds are *only* compatible with debug builds of FreeCAD and are much larger than the Release builds. Make sure you *really* need it: for most developers, using the Release version and compiling FreeCAD in `RelWithDebInfo` mode is good enough. Builds of the LibPack are available for download from the [Releases page](https://github.com/FreeCAD/FreeCAD-libpack/releases).
+As of June 2026, the LibPack is designed to work with FreeCAD 26.3dev, and is available for both x64 and ARM64 processors, in Release and Debug modes. Note that Debug builds are *only* compatible with debug builds of FreeCAD and are much larger than the Release builds. Make sure you *really* need it: for most developers, using the Release version and compiling FreeCAD in `RelWithDebInfo` mode is good enough. Builds of the LibPack are available for download from the [Releases page](https://github.com/FreeCAD/FreeCAD-libpack/releases).
 
-The current LibPack, v3.4, is tested to work with [Microsoft Visual Studio](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B) version 17.14.* (MSVC 143). Visual Studio 2026 may also be used as long as the MSVC v143 toolchain is installed by selecting the v143 toolset via the `--vcvars-ver=14.4` argument to the build script. Note the version numbering is odd: "v143" does in fact correspond to version 14.4. The Debug LibPack is built with `--mode=debug`, produces a `Py_DEBUG` CPython, and source-builds every C extension in the pip set against the `cp3XXd` ABI.
+The current LibPack, v3.5, is tested to work with [Microsoft Visual Studio](https://en.wikipedia.org/wiki/Microsoft_Visual_C%2B%2B) version 17.14.* (MSVC 143). Visual Studio 2026 may also be used as long as the MSVC v143 toolchain is installed by selecting the v143 toolset via the `--vcvars-ver=14.4` argument to the build script. Note the version numbering is odd: "v143" does in fact correspond to version 14.4. The Debug LibPack is built with `--mode=debug`, produces a `Py_DEBUG` CPython, and source-builds every C extension in the pip set against the `cp3XXd` ABI.
 
 To compile FreeCAD, you will need FreeCAD's source code from the [FreeCAD repository](https://github.com/FreeCAD/FreeCAD). In general, to compile with the LibPack, you will run CMake (either via the GUI or on the command line) and set the following variables:
- * `-D FREECAD_LIBPACK_DIR="C:/Path/To/The/LibPack-1.2.0-v3.4.0-x64-Release"`
+ * `-D FREECAD_LIBPACK_DIR="C:/Path/To/The/LibPack-1.2.0-v3.5.1-x64-Release"`
  * `-D FREECAD_COPY_LIBPACK_BIN_TO_BUILD=ON`
  * `-D FREECAD_COPY_DEPEND_DIRS_TO_BUILD=ON`
  * `-D FREECAD_COPY_PLUGINS_BIN_TO_BUILD=ON`
@@ -26,7 +26,7 @@ To build the LibPack locally, you will need the following:
  * CMake
  * git
  * 7z (see https://www.7-zip.org)
- * Python >= 3.8 (**not** used inside the LibPack itself, just used to run the creation script)
+ * Python >= 3.10 (**not** used inside the LibPack itself, just used to run the creation script)
  * The "requests" Python package (e.g. 'pip install requests')
  * The "diff-match-patch" Python package (e.g. 'pip install diff-match-patch')
  * GNU Bison (for Windows see https://github.com/lexxmark/winflexbison/)
