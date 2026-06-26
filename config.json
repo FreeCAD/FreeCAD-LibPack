@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"26.3.0",
-    "LibPack-version":"3.5.1",
+    "LibPack-version":"3.5.2",
     "content": [
         {
             "name":"libiconv",
@@ -219,7 +219,7 @@
         {
             "name":"opencascade",
             "git-repo":"https://github.com/Open-Cascade-SAS/OCCT",
-            "git-ref":"V8_0_0"
+            "git-ref":"V8_0_0_p1"
         },
         {
             "name":"netgen",

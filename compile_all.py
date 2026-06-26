@@ -274,12 +274,18 @@ def to_dynamic(base: str = ""):
 
 class Compiler:
     def __init__(
-        self, config, bison_path, skip_existing: bool = False, mode: BuildMode = BuildMode.RELEASE
+        self,
+        config,
+        bison_path,
+        skip_existing: bool = False,
+        mode: BuildMode = BuildMode.RELEASE,
+        force_rebuild: set = None,
     ):
         self.config = config
         self.bison_path = bison_path
         self.base_dir = os.getcwd()
         self.skip_existing = skip_existing
+        self.force_rebuild = set(force_rebuild or [])
         self.install_dir = libpack_dir(config, mode)
         self.init_script = None
         # Full MSVC tools version (for example "14.44.35207") to pass to MSBuild as
@@ -397,8 +403,11 @@ class Compiler:
         )
         os.makedirs(pip_cache_dir, exist_ok=True)
         os.environ["PIP_CACHE_DIR"] = pip_cache_dir
+        base_skip_existing = self.skip_existing
         for item in self.config["content"]:
             # All build methods are named using "build_XXX" where XXX is the name of the package in the config file
+            # A package named in force_rebuild always rebuilds, even when skip-existing is otherwise in effect.
+            self.skip_existing = base_skip_existing and item["name"] not in self.force_rebuild
             os.chdir(item["name"])
             build_function_name = "build_" + item["name"]
             if hasattr(self, build_function_name):
@@ -1159,16 +1168,10 @@ class Compiler:
 
     def build_boost(self, _=None):
         if self.skip_existing:
-            start_crawl_at = os.path.join(self.install_dir, "include")
-            contents = [
-                f
-                for f in os.listdir(start_crawl_at)
-                if os.path.isdir(os.path.join(start_crawl_at, f))
-            ]
-            for item in contents:
-                if item.startswith("boost"):
-                    print("  Not rebuilding boost, it is already in the LibPack")
-                    return
+            self._configure_boost_version()
+            if self.boost_include_path is not None:
+                print("  Not rebuilding boost, it is already in the LibPack")
+                return
         extra_args = [
             "-D BOOST_INSTALL_LAYOUT=versioned",
             "-D BOOST_ENABLE_CMAKE=ON",
