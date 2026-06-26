@@ -115,6 +115,61 @@ def create_libpack_dir(config: dict, mode: compile_all.BuildMode) -> str:
     return dirname
 
 
+def _parse_libpack_version(dirname: str, fc_version: str, arch: str, mode_str: str):
+    """Extract the LibPack version tuple from a directory named
+    LibPack-<fc_version>-v<lp_version>-<arch>-<mode_str>, or None if it does not match."""
+    prefix = f"LibPack-{fc_version}-v"
+    suffix = f"-{arch}-{mode_str}"
+    if not (dirname.startswith(prefix) and dirname.endswith(suffix)):
+        return None
+    lp_version = dirname[len(prefix) : len(dirname) - len(suffix)]
+    try:
+        return tuple(int(part) for part in lp_version.split("."))
+    except ValueError:
+        return None
+
+
+def find_seed_source(config: dict, mode: compile_all.BuildMode):
+    """Locate the highest-versioned existing LibPack install directory that matches the
+    current FreeCAD version, architecture, and build mode but carries a different LibPack
+    version, suitable for seeding the new install directory. Returns an absolute path or None."""
+    target = compile_all.libpack_dir(config, mode)
+    parent = os.path.dirname(target)
+    if not os.path.isdir(parent):
+        return None
+    target_name = os.path.basename(target)
+    fc_version = config["FreeCAD-version"]
+    arch = compile_all.libpack_arch_label()
+    mode_str = str(mode)
+    candidates = []
+    for name in os.listdir(parent):
+        if name == target_name:
+            continue
+        full = os.path.join(parent, name)
+        if not os.path.isdir(full):
+            continue
+        version = _parse_libpack_version(name, fc_version, arch, mode_str)
+        if version is not None:
+            candidates.append((version, full))
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[-1][1]
+
+
+def seed_libpack_dir(config: dict, mode: compile_all.BuildMode, seed_source: str) -> str:
+    """Create the new versioned install directory by copying a prior LibPack tree into it
+    so that packages which are not being rebuilt are carried forward without recompilation.
+    Returns the path to the new directory's bin subdirectory."""
+    target = compile_all.libpack_dir(config, mode)
+    print(f"Seeding {os.path.basename(target)} from {os.path.basename(seed_source)}")
+    print("  (copying prior build artifacts so unchanged packages are not recompiled)")
+    shutil.copytree(seed_source, target)
+    bin_dir = os.path.join(target, "bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    return bin_dir
+
+
 def _select_url(item: dict) -> str | None:
     if "url" in item:
         return item["url"]
@@ -125,7 +180,12 @@ def _select_url(item: dict) -> str | None:
     return None
 
 
-def fetch_remote_data(config: dict, mode: compile_all.BuildMode, skip_existing: bool = False):
+def fetch_remote_data(
+    config: dict,
+    mode: compile_all.BuildMode,
+    skip_existing: bool = False,
+    force_rebuild: set = None,
+):
     """Clone the required repos and download the URLs.
 
     Entries that provide both a `git-repo` and a `url-*` are treated as hybrid:
@@ -135,8 +195,13 @@ def fetch_remote_data(config: dict, mode: compile_all.BuildMode, skip_existing: 
     expected to handle the package some other way, e.g. via pip)."""
     content = config["content"]
     is_debug = mode == compile_all.BuildMode.DEBUG
+    force_rebuild = force_rebuild or set()
     for item in content:
-        if skip_existing and os.path.exists(item["name"]):
+        if item["name"] in force_rebuild:
+            if os.path.exists(item["name"]):
+                print(f"Refreshing source for {item['name']} (forced rebuild)")
+                shutil.rmtree(item["name"], onerror=remove_readonly)
+        elif skip_existing and os.path.exists(item["name"]):
             continue
         has_git = "git-repo" in item
         has_any_url = any(k in item for k in ("url", "url-ARM64", "url-x64"))
@@ -421,6 +486,36 @@ if __name__ == "__main__":
         help="If a given build already exists, run the build process again anyway",
     )
     parser.add_argument(
+        "--rebuild",
+        help=(
+            "Comma-separated list of package names to force a fresh clone and rebuild of, even "
+            "when skip-existing is in effect for everything else. Use this to update a single "
+            "dependency and its dependents without disturbing unrelated packages. For example, "
+            "to update OpenCASCADE and the packages that link against it: "
+            "--rebuild opencascade,netgen,gmsh,opencamlib,ifcopenshell. "
+            "(A future enhancement could derive the dependent set automatically from a "
+            "dependency graph in config.json rather than requiring the list to be spelled out.)"
+        ),
+        default="",
+    )
+    parser.add_argument(
+        "--seed-from",
+        nargs="?",
+        const="auto",
+        default="",
+        help=(
+            "Seed a new versioned install directory by copying a prior LibPack build into it, "
+            "so that packages which are not being rebuilt are carried forward without "
+            "recompilation. This is the companion to --rebuild when the LibPack version (and "
+            "therefore the install directory name) changes: the prior artifacts satisfy every "
+            "non-rebuilt package's skip-existing check, so only the --rebuild set actually "
+            "compiles. Pass the flag alone to auto-detect the highest prior LibPack directory "
+            "for the same FreeCAD version, architecture, and build mode, or pass an explicit "
+            "path to seed from. Omit it entirely to keep the current behavior (start from an "
+            "empty directory). Has no effect if the target directory already exists."
+        ),
+    )
+    parser.add_argument(
         "-s",
         "--silent",
         action="store_true",
@@ -474,6 +569,12 @@ if __name__ == "__main__":
             if item.get("name") == "qt":
                 item["fallback-build-dir"] = args["fallback_build_dir"]
                 break
+    force_rebuild = {name.strip() for name in args["rebuild"].split(",") if name.strip()}
+    if force_rebuild:
+        unknown = force_rebuild - {item["name"] for item in config_dict.get("content", [])}
+        if unknown:
+            print(f"ERROR: --rebuild names unknown package(s): {', '.join(sorted(unknown))}")
+            exit(1)
     path_to_7zip = args["7zip"]
     path_to_bison = args["bison"]
 
@@ -485,22 +586,42 @@ if __name__ == "__main__":
     working = compile_all.working_dir_name(mode)
     os.makedirs(working, exist_ok=True)
     os.chdir(working)
+    seed_arg = args["seed_from"]
     if args["no_skip_existing_clone"]:
         dirname = compile_all.libpack_dir(config_dict, mode)
-        if not os.path.exists(dirname):
-            base = create_libpack_dir(config_dict, mode)
-        else:
+        if os.path.exists(dirname):
+            if seed_arg:
+                print(
+                    f"  NOTE: {os.path.basename(dirname)} already exists; ignoring --seed-from "
+                    "and using the existing directory."
+                )
             base = dirname
+        else:
+            seed_source = None
+            if seed_arg == "auto":
+                seed_source = find_seed_source(config_dict, mode)
+                if seed_source is None:
+                    print("  No prior LibPack directory found to seed from; starting empty.")
+            elif seed_arg:
+                seed_source = os.path.abspath(seed_arg)
+                if not os.path.isdir(seed_source):
+                    print(f"ERROR: --seed-from path does not exist: {seed_source}")
+                    exit(1)
+            if seed_source:
+                base = seed_libpack_dir(config_dict, mode, seed_source)
+            else:
+                base = create_libpack_dir(config_dict, mode)
     else:
         base = create_libpack_dir(config_dict, mode)
     with prevent_sleep_mode():
-        fetch_remote_data(config_dict, mode, args["no_skip_existing_clone"])
+        fetch_remote_data(config_dict, mode, args["no_skip_existing_clone"], force_rebuild)
 
         compiler = compile_all.Compiler(
             config_dict,
             bison_path=path_to_bison,
             skip_existing=args["no_skip_existing_build"],
             mode=mode,
+            force_rebuild=force_rebuild,
         )
         vs_install_path = subprocess.check_output(
             build_vswhere_args(args["vs_version"]),
