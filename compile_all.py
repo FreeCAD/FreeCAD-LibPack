@@ -930,10 +930,16 @@ class Compiler:
         )
         if scipy_specs:
             print("  Installing scipy with use-pythran=false")
+            # no_deps is required here: scipy's runtime dependency numpy was already
+            # source-built and installed in the main pass above. Without --no-deps, this
+            # separate resolution would pull the latest numpy release wheel (which carries
+            # no debug _d.pyd), overwriting the source-built debug numpy's Python files and
+            # leaving the debug C extension and the Python layer at mismatched versions.
             self._run_pip_install(
                 scipy_specs,
                 no_build_isolation=True,
                 no_binary_packages=("scipy",),
+                no_deps=True,
                 # Pythran 0.18 headers fail to compile under MSVC for scipy's
                 # pythran-translated modules (a ref-qualifier overload mismatch in
                 # ndarray.hpp). Disabling pythran skips those modules; scipy provides
@@ -960,7 +966,12 @@ class Compiler:
         return path if path and os.path.exists(path) else None
 
     def _run_pip_install(
-        self, requirements, no_build_isolation, no_binary_packages, config_settings=()
+        self,
+        requirements,
+        no_build_isolation,
+        no_binary_packages,
+        config_settings=(),
+        no_deps=False,
     ):
         path_to_python = self.python_exe()
         pip_args = [
@@ -972,6 +983,8 @@ class Compiler:
             "--ignore-installed",
             "--no-warn-script-location",
         ]
+        if no_deps:
+            pip_args.append("--no-deps")
         if no_build_isolation:
             pip_args.append("--no-build-isolation")
         for pkg in no_binary_packages:
