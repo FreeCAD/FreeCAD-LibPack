@@ -404,7 +404,7 @@ def install_pdb_sidecars(
 
     Most upstream CMake configs install only the DLL and the import library and
     leave the sidecar PDB behind in the build tree. As a result the installed
-    LibPack carries no debugging information for Qt, OCCT, Coin, VTK, Boost, or
+    LibPack carries no debugging information for Qt, OCCT, VTK, Boost, or
     the Python interpreter, even when built with /Zi /DEBUG. This walk fills
     that gap: for every DLL already installed under ``install_dir``, locate a
     PDB whose stem matches anywhere under ``working_dir`` (or any of the

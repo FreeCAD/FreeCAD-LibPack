@@ -28,6 +28,7 @@ _DEBUG_BUILD_EXCLUDED_REQUIREMENTS = frozenset(
     name.lower()
     for name in (
         # Direct C/C++/Fortran/Rust extensions with no pure-Python distribution.
+        "av",
         "cmake",
         "cog",
         "ifcopenshell",
@@ -75,6 +76,9 @@ _DEBUG_BUILD_FROM_SOURCE = (
     "pydantic_core",
     "watchfiles",
     "lxml",
+    # Force pure-Python mypy (its wheels are mypyc-compiled, won't load under python_d).
+    # Keep the pin at 1.18.2; newer mypy needs the compiled-only librt.
+    "mypy",
 )
 
 # Sitecustomize shim installed at <libpack>/bin/Lib/site-packages/sitecustomize.py for
@@ -297,10 +301,9 @@ class Compiler:
         self.mode = mode
         self.strict_mode = True
 
-        # Right now there are two packages where the version number gets coded into the path when: Boost and Coin:
-        # store those two separately from all the other paths we have to track
+        # Boost is the one package where the version number gets coded into the path, so store
+        # that path separately from all the other paths we have to track
         self.boost_include_path = None
-        self.coin_cmake_path = None
 
     def get_cmake_options(self) -> List[str]:
         """Get a comprehensive list of cMake options that can be used in any cMake build. Not all options apply
@@ -337,7 +340,6 @@ class Compiler:
             f"-D HDF5_DIFF_EXECUTABLE={self.install_dir}/bin/hdf5diff" + to_exe(),
             f"-D INSTALL_DIR={self.install_dir}",
             f"-D PCRE2_LIBRARY={pcre_lib}",
-            "-D PIVY_USE_QT6=Yes",
             f"-D pybind11_DIR={self.install_dir}/share/cmake/pybind11",
             f"-D Python_ROOT_DIR={self.install_dir}/bin",
             f"-D Python_DIR={self.install_dir}/bin",
@@ -350,8 +352,6 @@ class Compiler:
             f"-D Qt6_DIR={self.install_dir}/lib/cmake/Qt6",
             f"-D SWIG_EXECUTABLE={self.install_dir}/bin/swig" + to_exe(),
             f"-D ZLIB_DIR={self.install_dir}/lib/cmake/",
-            "-D CMAKE_DISABLE_FIND_PACKAGE_SoQt=True",
-            # Absolutely never find SoQt (it's deprecated and we don't want it!)
         ]
         if self.mode == BuildMode.DEBUG:
             python_lib = self._python_lib_path()
@@ -372,8 +372,6 @@ class Compiler:
             )
         if self.boost_include_path:
             base.append(f"-D Boost_INCLUDE_DIR={self.boost_include_path}")
-        if self.coin_cmake_path:
-            base.append(f"-D Coin_DIR={self.coin_cmake_path}")
         if sys.platform.startswith("win32"):
             inc_path = self.install_dir.replace("\\", "/")
             cxx_flags = (
@@ -710,6 +708,14 @@ class Compiler:
             major, minor = self.get_python_version(os.path.join("PCBuild", path, exe_name)).split(
                 "."
             )
+
+            # We ship the full stdlib in Lib/, but Windows Python auto-adds
+            # <bin>/python<major><minor>.zip to sys.path ahead of Lib/ whenever that file
+            # exists. A stale or partial such zip (for example one left in an incremental
+            # build tree) would shadow Lib/ and break stdlib imports, so remove it.
+            stdlib_zip = os.path.join(bin_dir, f"python{major}{minor}.zip")
+            if os.path.exists(stdlib_zip):
+                os.remove(stdlib_zip)
 
             # Construct the list of files we expect to exist that need to be placed in the toplevel directory, or in
             # libs:
@@ -1401,41 +1407,6 @@ class Compiler:
             exit(1)
         self._pip_install(options["pip-install"])
 
-    def build_coin(self, _=None):
-        """Builds and installs Coin using standard CMake settings"""
-        if self.skip_existing:
-            self._configure_coin_cmake_path()
-            if self.coin_cmake_path is not None:
-                print("  Not rebuilding Coin, it is already in the LibPack")
-                return
-        extra_args = ["-D COIN_BUILD_TESTS=Off"]
-        self._build_standard_cmake(extra_args)
-        self._configure_coin_cmake_path()
-
-    def _configure_coin_cmake_path(self):
-        """Coin installs its cMake file into a directory named with the full version, so figure out what that is"""
-        start_crawl_at = os.path.join(self.install_dir, "lib", "cmake")
-        contents = [
-            f for f in os.listdir(start_crawl_at) if os.path.isdir(os.path.join(start_crawl_at, f))
-        ]
-        for item in contents:
-            if item.startswith("Coin"):
-                self.coin_cmake_path = os.path.join(start_crawl_at, item)
-                break
-
-    def build_quarter(self, _=None):
-        """Builds and installs Quarter using standard CMake settings"""
-        if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "include", "Quarter")):
-                print("  Not rebuilding Quarter, it is already in the LibPack")
-                return
-        extra_args = [
-            "-D QUARTER_BUILD_EXAMPLES=Off",
-            "-D QUARTER_USE_QT5=Off",
-            "-D QUARTER_USE_QT6=On",
-        ]
-        self._build_standard_cmake(extra_args=extra_args)
-
     def build_zlib(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "zlib.h")):
@@ -1480,6 +1451,23 @@ class Compiler:
         else:
             raise NotImplemented("Non-Windows compilation of bzip2 is not implemented yet")
 
+    def build_expat(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "expat.h")):
+                print("  Not rebuilding expat, it is already in the LibPack")
+                return
+        # libexpat's CMake project lives in the expat/ subdirectory of the repository rather
+        # than at its root, so descend into it before running the standard CMake build.
+        os.chdir("expat")
+        extra_args = [
+            "-D EXPAT_BUILD_TOOLS=OFF",
+            "-D EXPAT_BUILD_EXAMPLES=OFF",
+            "-D EXPAT_BUILD_TESTS=OFF",
+            "-D EXPAT_BUILD_DOCS=OFF",
+            "-D EXPAT_SHARED_LIBS=ON",
+        ]
+        self._build_standard_cmake(extra_args)
+
     def build_pcre2(self, _=None):
         if self.skip_existing:
             if os.path.exists(os.path.join(self.install_dir, "include", "pcre2.h")):
@@ -1493,19 +1481,6 @@ class Compiler:
                 print("  Not rebuilding SWIG, it is already in the LibPack")
                 return
         self._build_standard_cmake()
-
-    def build_pivy(self, _=None):
-        if self.skip_existing:
-            if os.path.exists(
-                os.path.join(self.install_dir, "bin", "Lib", "site-packages", "pivy")
-            ):
-                print("  Not rebuilding pivy, it is already in the LibPack")
-                return
-        extra_args = []
-        self._build_standard_cmake(extra_args)
-        if self.mode == BuildMode.DEBUG:
-            base = os.path.join(self.install_dir, "bin", "Lib", "site-packages", "pivy")
-            os.rename(os.path.join(base, "_coin.pyd"), os.path.join(base, "_coin_d.pyd"))
 
     def build_libclang(self, _=None):
         """libclang is provided as a platform-specific download by Qt."""
@@ -2035,7 +2010,9 @@ class Compiler:
             if os.path.exists(os.path.join(self.install_dir, "include", "fmt")):
                 print("  Not rebuilding libfmt, it is already in the LibPack")
                 return
-        extra_args = ["-D FMT_TEST=OFF", "-D FMT_DOC=OFF"]
+        # fmt 12.2.0 auto-enables FMT_MODULE under C++20/MSVC, exporting a broken fmt::fmt-module
+        # target that breaks find_package(fmt). FreeCAD uses fmt as a plain library, so disable it.
+        extra_args = ["-D FMT_TEST=OFF", "-D FMT_DOC=OFF", "-D FMT_MODULE=OFF"]
         self._build_standard_cmake(extra_args)
 
     def build_eigen3(self, _: None):
@@ -2076,7 +2053,7 @@ class Compiler:
         # ("opencamlib") under CMAKE_INSTALL_PREFIX, expecting either scikit-build to
         # supply a wheel root or the build driver to point CMAKE_INSTALL_PREFIX at a
         # site-packages directory (see src/pythonlib/pythonlib.cmake). Other Python
-        # C-extensions in this LibPack (for example pivy) detect Python_SITEARCH from
+        # C-extensions in this LibPack detect Python_SITEARCH from
         # CMake's FindPython and install themselves into site-packages directly;
         # opencamlib does not. To ensure it ends up in the right place we override the prefix
         # for this one package so its "opencamlib" destination resolves under the

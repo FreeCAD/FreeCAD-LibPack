@@ -660,6 +660,10 @@ if __name__ == "__main__":
                 exit(1)
         else:
             compiler.init_script = [init_bat]
+        # Ignore the per-user site-packages, which the LibPack's Python shares with any
+        # same-version system Python; a user-installed setuptools there shadows our pinned
+        # copy and breaks setup.py-based steps (PySide/Shiboken).
+        os.environ["PYTHONNOUSERSITE"] = "1"
         compiler.compile_all()
 
         # Final cleanup: delete extraneous files and remove local path references from the cMake files
