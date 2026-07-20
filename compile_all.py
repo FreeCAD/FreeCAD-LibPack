@@ -77,7 +77,7 @@ _DEBUG_BUILD_FROM_SOURCE = (
     "watchfiles",
     "lxml",
     # Force pure-Python mypy (its wheels are mypyc-compiled, won't load under python_d).
-    # Keep the pin at 1.18.2; newer mypy needs the compiled-only librt.
+    # Keep the pin at 1.18.2; newer mypy needs the compiled-only librt.Let's w
     "mypy",
 )
 
@@ -1174,6 +1174,7 @@ class Compiler:
             "-submodules",
             ",".join(submodules),
             "-feature-opengl",
+            "-feature-zstd",
             "-prefix",
             self.install_dir,
             "-opengl",
@@ -1181,6 +1182,14 @@ class Compiler:
         ]
         if self.mode == BuildMode.DEBUG:
             init_command.append("-debug")
+        # Qt 6.11 has no bundled zstd, so WrapZSTD must locate the LibPack's own copy via its
+        # installed CMake config package. Point find_package(zstd CONFIG) directly at it.
+        # Requesting -feature-zstd above turns a missing zstd into a hard configure error rather
+        # than a silently disabled feature that would leave rcc unable to handle zstd resources.
+        init_command += [
+            "--",
+            f"-Dzstd_DIR={self.install_dir}/lib/cmake/zstd".replace("\\", "/"),
+        ]
         try:
             self._run_streaming(init_command, "configure_log.txt")
         except subprocess.CalledProcessError as e:
@@ -1585,6 +1594,22 @@ class Compiler:
                 print("  Not rebuilding libpng, it is already in the LibPack")
                 return
         self._build_standard_cmake()
+
+    def build_zstd(self, _=None):
+        if self.skip_existing:
+            if os.path.exists(os.path.join(self.install_dir, "include", "zstd.h")):
+                print("  Not rebuilding zstd, it is already in the LibPack")
+                return
+        # Zstandard's CMake project lives in the build/cmake subdirectory of the repository
+        # rather than at its root, so descend into it before running the standard CMake build.
+        os.chdir(os.path.join("build", "cmake"))
+        extra_args = [
+            "-D ZSTD_BUILD_SHARED=ON",
+            "-D ZSTD_BUILD_STATIC=ON",
+            "-D ZSTD_BUILD_PROGRAMS=OFF",
+            "-D ZSTD_BUILD_TESTS=OFF",
+        ]
+        self._build_standard_cmake(extra_args)
 
     def build_pybind11(self, _=None):
         if self.skip_existing:

@@ -46,6 +46,12 @@
             "git-ref":"v1.6.58"
         },
         {
+            "name":"zstd",
+            "git-repo":"https://github.com/facebook/zstd",
+            "git-ref":"v1.5.7",
+            "note":"Zstandard. Qt 6.11 ships no bundled zstd; WrapZSTD requires an external one. Without it Qt configures with the zstd feature off, so the resource compiler (rcc) cannot produce or read zstd-compressed .qrc/.rcc resources, which breaks FreeCAD builds that use zstd resource compression. Built before Qt so build_qt can require FEATURE_zstd and fail loudly if it is ever missing again."
+        },
+        {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
             "git-ref":"v3.14.6",
