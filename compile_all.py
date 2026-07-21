@@ -1493,10 +1493,14 @@ class Compiler:
 
     def build_libclang(self, _=None):
         """libclang is provided as a platform-specific download by Qt."""
-        if self.skip_existing:
-            if os.path.exists(os.path.join(self.install_dir, "include", "clang")):
-                print("  Not copying libclang, it is already in the LibPack")
-                return
+        # libclang.dll is the runtime library shiboken loads and the only libclang artifact
+        # FreeCAD ships; path_cleaner never removes it. Its presence is therefore the
+        # reliable proof of a complete copy: include/clang can survive a stripped or
+        # partially-extracted tree that is missing the binaries shiboken needs.
+        libclang_dll = os.path.join(self.install_dir, "bin", "libclang.dll")
+        if self.skip_existing and os.path.exists(libclang_dll):
+            print("  Not copying libclang, it is already in the LibPack")
+            return
         print("  (not really building libclang, just copying from a build provided by Qt)")
 
         # Skip libclang's bundled CPython (bin/python3XX.dll and python3XX.zip), which would
@@ -1511,6 +1515,16 @@ class Compiler:
         shutil.copytree(
             "libclang", self.install_dir, dirs_exist_ok=True, ignore=ignore_bundled_python
         )
+
+        if not os.path.exists(libclang_dll):
+            print(
+                "ERROR: libclang.dll is missing from the LibPack after copying libclang. The "
+                "Qt libclang prebuilt was extracted incompletely: its bin/ executables and "
+                "DLLs were dropped, which is usually antivirus quarantine or an interrupted "
+                "extraction. Re-extract the archive, adding an antivirus exclusion for the "
+                "working directory if necessary, or rebuild libclang with --rebuild libclang."
+            )
+            exit(1)
 
     def build_pyside(self, _=None):
         # Don't use a pip-install for this, we need the linkable libraries and include files for both PySide and
