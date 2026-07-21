@@ -125,7 +125,7 @@
         },
         {
             "name":"qt",
-            "git-repo": "git://code.qt.io/qt/qt5.git",
+            "git-repo": "https://code.qt.io/qt/qt5.git",
             "git-ref": "v6.11.1",
             "fallback-build-dir": "G:\\temp"
         },
