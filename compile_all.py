@@ -1498,7 +1498,19 @@ class Compiler:
                 print("  Not copying libclang, it is already in the LibPack")
                 return
         print("  (not really building libclang, just copying from a build provided by Qt)")
-        shutil.copytree("libclang", self.install_dir, dirs_exist_ok=True)
+
+        # Skip libclang's bundled CPython (bin/python3XX.dll and python3XX.zip), which would
+        # otherwise clobber the LibPack's own Python and shadow its stdlib.
+        def ignore_bundled_python(directory, names):
+            return [
+                name
+                for name in names
+                if re.fullmatch(r"python\w*\.(dll|zip|exe|pdb)", name, re.IGNORECASE)
+            ]
+
+        shutil.copytree(
+            "libclang", self.install_dir, dirs_exist_ok=True, ignore=ignore_bundled_python
+        )
 
     def build_pyside(self, _=None):
         # Don't use a pip-install for this, we need the linkable libraries and include files for both PySide and

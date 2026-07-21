@@ -230,6 +230,51 @@ class TestDeleteUnusedStaticLibs(unittest.TestCase):
         self.assertEqual(path_cleaner.delete_unused_static_libs(self.base_dir), 0)
 
 
+class TestDeleteLlvmCmakePackages(unittest.TestCase):
+    """Verifies that the orphaned LLVM, Clang, and LLD CMake packages are removed and nothing else is."""
+
+    def setUp(self):
+        self.base_dir = tempfile.mkdtemp(prefix="libpack_test_")
+        self.cmake_dir = os.path.join(self.base_dir, "lib", "cmake")
+        os.makedirs(self.cmake_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.base_dir, ignore_errors=True)
+
+    def _make_package(self, name: str) -> str:
+        path = os.path.join(self.cmake_dir, name)
+        os.makedirs(path)
+        with open(os.path.join(path, f"{name}Config.cmake"), "w", encoding="utf-8") as f:
+            f.write("x")
+        return path
+
+    def test_removes_llvm_clang_lld_packages(self):
+        """The llvm, clang, and lld CMake package directories should be removed."""
+        targets = [self._make_package(n) for n in ("llvm", "clang", "lld")]
+
+        removed = path_cleaner.delete_llvm_cmake_packages(self.base_dir)
+
+        self.assertEqual(removed, len(targets))
+        for path in targets:
+            self.assertFalse(os.path.exists(path), f"Expected {path} to be removed")
+
+    def test_preserves_other_packages(self):
+        """Unrelated CMake packages must not be touched."""
+        keepers = [self._make_package(n) for n in ("Qt6Core", "Shiboken6", "zstd")]
+
+        removed = path_cleaner.delete_llvm_cmake_packages(self.base_dir)
+
+        self.assertEqual(removed, 0)
+        for path in keepers:
+            self.assertTrue(os.path.exists(path), f"Expected {path} to be preserved")
+
+    def test_no_cmake_dir_is_not_an_error(self):
+        """If the LibPack has no lib/cmake/ directory the function should be a no-op."""
+        shutil.rmtree(self.cmake_dir)
+
+        self.assertEqual(path_cleaner.delete_llvm_cmake_packages(self.base_dir), 0)
+
+
 class TestDeleteDocumentation(unittest.TestCase):
     """Verifies that share/doc and the top-level Qt qdoc input directory are both removed."""
 
