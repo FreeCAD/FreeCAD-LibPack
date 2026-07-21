@@ -262,6 +262,34 @@ def delete_unused_static_libs(base_path: str) -> int:
     return removed
 
 
+_ORPHANED_LLVM_CMAKE_DIRS = ("llvm", "clang", "lld")
+
+
+def delete_llvm_cmake_packages(base_path: str) -> int:
+    """Remove the LLVM, Clang, and LLD CMake package directories from lib/cmake/.
+
+    delete_unused_static_libs deletes the archives these exported targets point at, so leaving the
+    packages in place would make a downstream find_package(Clang) fail its imported-file existence
+    check. Nothing FreeCAD builds consumes these packages. Returns the number of directories removed.
+    """
+    print("Removing orphaned LLVM, Clang, and LLD CMake packages")
+    cmake_dir = os.path.join(base_path, "lib", "cmake")
+    if not os.path.isdir(cmake_dir):
+        return 0
+
+    removed = 0
+    for name in _ORPHANED_LLVM_CMAKE_DIRS:
+        target = os.path.join(cmake_dir, name)
+        if not os.path.isdir(target):
+            continue
+        try:
+            shutil.rmtree(target)
+            removed += 1
+        except OSError as e:
+            print(f"Failed to delete {target}: {e}")
+    return removed
+
+
 _DOCUMENTATION_RELATIVE_DIRS = (
     os.path.join("doc"),
     os.path.join("share", "doc"),

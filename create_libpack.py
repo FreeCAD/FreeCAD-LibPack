@@ -682,6 +682,7 @@ if __name__ == "__main__":
         path_cleaner.delete_llvm_executables(base_path)
         path_cleaner.delete_clang_executables(base_path)
         path_cleaner.delete_unused_static_libs(base_path)
+        path_cleaner.delete_llvm_cmake_packages(base_path)
         path_cleaner.delete_lldb(base_path)
         path_cleaner.delete_bundled_cmake(base_path)
         path_cleaner.delete_llvm_internal_headers(base_path)
