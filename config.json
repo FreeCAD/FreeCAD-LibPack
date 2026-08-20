@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"26.3.0",
-    "LibPack-version":"3.5.3",
+    "LibPack-version":"3.5.4",
     "content": [
         {
             "name":"libiconv",
@@ -23,7 +23,7 @@
         {
             "name":"libjpeg",
             "git-repo":"https://github.com/libjpeg-turbo/libjpeg-turbo",
-            "git-ref":"3.1.4.1",
+            "git-ref":"3.2.0",
             "note": "Debug-only package. In Release mode build_libjpeg returns early because PyPI Pillow wheels bundle their own libjpeg. In Debug mode this provides the libjpeg API that source-built Pillow links against."
         },
         {
@@ -33,7 +33,7 @@
             "patches": [
                 "patches/openblas-02-whereami-msvc-stub.patch"
             ],
-            "note": "Debug-only package. In Release mode build_openblas returns early because PyPI numpy and scipy wheels bundle their own OpenBLAS in numpy/.libs/. In Debug mode this provides the BLAS+LAPACK that source-built numpy and scipy link against."
+            "note": "Debug-only package. In Release mode build_openblas returns early because PyPI numpy and scipy wheels bundle their own OpenBLAS in numpy/.libs/. In Debug mode this provides the BLAS+LAPACK that source-built numpy and scipy link against. Do not bump past 0.3.33 for the ARM64 Debug build: 0.3.34 adds ARM64 NEON omatcopy kernels (kernel/arm64/omatcopy_*_neon.c) written with GCC/Clang vector syntax that MSVC cl.exe cannot compile (syntax error C2143 'missing )'). Revisit only if upstream guards those kernels against MSVC."
         },
         {
             "name":"zlib",
@@ -54,16 +54,16 @@
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
-            "git-ref":"v3.14.6",
+            "git-ref":"v3.14.7",
             "requirements": [
-                "annotated-types==0.7.0",
-                "anyio==4.14.1",
+                "annotated-types==0.8.0",
+                "anyio==4.14.2",
                 "attrs==23.2.0",
                 "av==18.0.0",
-                "certifi==2026.6.17",
-                "charset-normalizer==3.4.7",
+                "certifi==2026.7.22",
+                "charset-normalizer==3.4.9",
                 "click==8.4.2",
-                "cmake==4.3.4",
+                "cmake==4.4.2",
                 "cog==0.16.12",
                 "colorama==0.4.6",
                 "configparser==7.2.0",
@@ -84,41 +84,41 @@
                 "kiwisolver==1.5.0",
                 "lark==1.3.1",
                 "lxml==6.1.1",
-                "matplotlib==3.11.0",
-                "mypy==1.18.2",
-                "nltk==3.9.4",
-                "numpy==2.5.0",
-                "packaging==26.2",
+                "matplotlib==3.11.1",
+                "mypy==2.3.0",
+                "nltk==3.10.2",
+                "numpy==2.5.1",
+                "packaging==26.3",
                 "pillow==12.3.0",
                 "ply==3.11",
                 "pycollada==0.9.3",
                 "pydantic==2.13.4",
                 "pydantic_core==2.46.4",
                 "pyparsing==3.3.2",
-                "pyshp==3.1.4",
+                "pyshp==3.1.6",
                 "pysolar==0.13",
                 "python-dateutil==2.9.0.post0",
                 "python-dotenv==1.2.2",
                 "PyYAML==6.0.3",
-                "regex==2026.6.28",
+                "regex==2026.7.19",
                 "requests==2.34.2",
                 "rpdb2==2.0.0.1.2",
                 "scipy==1.18.0",
                 "sets==0.3.2",
-                "setuptools==82.0.1",
+                "setuptools==83.0.0",
                 "shapely==2.1.2; platform_machine != \"ARM64\"",
                 "six==1.17.0",
                 "sniffio==1.3.1",
                 "starlette==0.48.0",
                 "structlog==24.4.0",
-                "tqdm==4.68.3",
+                "tqdm==4.70.0",
                 "typing-inspection==0.4.2",
                 "typing_extensions==4.16.0",
                 "urllib3==2.7.0",
-                "uvicorn==0.49.0",
+                "uvicorn==0.52.1",
                 "vermin==1.8.0",
                 "watchfiles==1.2.0",
-                "websockets==16.0",
+                "websockets==17.0.1",
                 "wheel==0.47.0",
                 "xmlschema==4.3.2"
             ]
@@ -184,7 +184,7 @@
         {
             "name":"harfbuzz",
             "git-repo":"https://github.com/harfbuzz/harfbuzz",
-            "git-ref":"14.2.1"
+            "git-ref":"14.3.0"
         },
         {
             "name":"freetype",
@@ -215,12 +215,12 @@
         {
             "name":"opencascade",
             "git-repo":"https://github.com/Open-Cascade-SAS/OCCT",
-            "git-ref":"V8_0_0_p1"
+            "git-ref":"V8_0_1"
         },
         {
             "name":"netgen",
             "git-repo":"https://github.com/NGSolve/netgen",
-            "git-ref":"v6.2.2604",
+            "git-ref":"v6.2.2606",
             "patches":[
                 "patches/netgen-02-arm64-msvc-time-counter.patch",
                 "patches/netgen-03-msvc-runtime-debug-aware.patch",
