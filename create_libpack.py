@@ -35,6 +35,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import time
 from urllib.parse import urlparse
 import path_cleaner
 
@@ -197,34 +198,72 @@ def fetch_remote_data(
     is_debug = mode == compile_all.BuildMode.DEBUG
     force_rebuild = force_rebuild or set()
     for item in content:
-        if item["name"] in force_rebuild:
-            if os.path.exists(item["name"]):
-                print(f"Refreshing source for {item['name']} (forced rebuild)")
-                shutil.rmtree(item["name"], onerror=remove_readonly)
-        elif skip_existing and os.path.exists(item["name"]):
-            continue
+        name = item["name"]
         has_git = "git-repo" in item
         has_any_url = any(k in item for k in ("url", "url-ARM64", "url-x64"))
         url = _select_url(item)
         if ("git-ref" in item or "git-hash" in item) and not has_git:
-            print(f"ERROR: found a git ref/hash without a git repo for {item['name']}")
+            print(f"ERROR: found a git ref/hash without a git repo for {name}")
             exit()
-        if has_git and (not has_any_url or is_debug):
-            clone(
-                item["name"],
-                item["git-repo"],
-                item.get("git-ref"),
-                item.get("git-hash"),
-            )
-            if "patches" in item:
-                cwd = os.getcwd()
-                os.chdir(item["name"])
-                compile_all.patch_files(item["patches"])
-                os.chdir(cwd)
-        elif url is not None:
-            download(item["name"], url)
-        else:
-            os.makedirs(item["name"], exist_ok=True)
+        will_clone = has_git and (not has_any_url or is_debug)
+        expects_content = will_clone or url is not None
+        if name in force_rebuild:
+            if os.path.exists(name):
+                print(f"Refreshing source for {name} (forced rebuild)")
+                shutil.rmtree(name, onerror=remove_readonly)
+        elif skip_existing and os.path.exists(name):
+            if fetch_is_complete(name, expects_content):
+                continue
+            print(f"The previous fetch of {name} did not complete: discarding it and retrying")
+            shutil.rmtree(name, onerror=remove_readonly)
+        with fetch_guard(name):
+            if will_clone:
+                clone(
+                    name,
+                    item["git-repo"],
+                    item.get("git-ref"),
+                    item.get("git-hash"),
+                )
+                if "patches" in item:
+                    cwd = os.getcwd()
+                    os.chdir(name)
+                    compile_all.patch_files(item["patches"])
+                    os.chdir(cwd)
+            elif url is not None:
+                download(name, url)
+            else:
+                os.makedirs(name, exist_ok=True)
+
+
+def _fetch_marker_path(name: str) -> str:
+    return f".{name}.fetch-in-progress"
+
+
+@contextmanager
+def fetch_guard(name: str):
+    """Record that a fetch is under way, and clear that record only once it succeeds.
+
+    A download or clone that dies part way through leaves behind a directory that looks
+    finished to a later skip-existing run. The marker lives outside that directory so
+    that it survives the directory being deleted, and so that it does not interfere with
+    git cloning into an empty directory."""
+    marker = _fetch_marker_path(name)
+    with open(marker, "w", encoding="utf-8") as f:
+        f.write(name)
+    yield
+    os.remove(marker)
+
+
+def fetch_is_complete(name: str, expects_content: bool) -> bool:
+    """Decide whether an existing fetch directory is the product of a successful fetch.
+    Directories created for packages that are handled elsewhere (by pip, for example) are
+    legitimately empty, which is what expects_content distinguishes."""
+    if os.path.exists(_fetch_marker_path(name)):
+        return False
+    if not expects_content:
+        return True
+    with os.scandir(name) as entries:
+        return any(entries)
 
 
 def clone(name: str, url: str, ref: str = None, hash: str = None):
@@ -267,16 +306,39 @@ def clone(name: str, url: str, ref: str = None, hash: str = None):
         exit(e.returncode)
 
 
-def download(name: str, url: str):
+def download(name: str, url: str, attempts: int = 3):
     """Directly downloads some sort of compressed format file and decompresses it (either using an internal
-    python method, or using a system-installed 7-zip)"""
+    python method, or using a system-installed 7-zip). Anything left over from an earlier attempt is
+    deleted first, and a transfer that fails or arrives truncated is retried rather than handed to the
+    decompressor."""
     print(f"Downloading {name} from {url}")
+    if os.path.exists(name):
+        shutil.rmtree(name, onerror=remove_readonly)
     os.mkdir(name)
-    request_result = requests.get(url)
     parsed_url = urlparse(url)
     filename = parsed_url.path.rsplit("/", 1)[-1]
-    with open(os.path.join(name, filename), "wb") as f:
-        f.write(request_result.content)
+    destination = os.path.join(name, filename)
+    for attempt in range(1, attempts + 1):
+        try:
+            written = 0
+            with requests.get(url, stream=True, timeout=60) as request_result:
+                request_result.raise_for_status()
+                expected = request_result.headers.get("Content-Length")
+                with open(destination, "wb") as f:
+                    for chunk in request_result.iter_content(chunk_size=1024 * 1024):
+                        written += f.write(chunk)
+            if expected is not None and written != int(expected):
+                raise OSError(f"expected {expected} bytes but received {written}")
+            break
+        except (requests.RequestException, OSError, ValueError) as e:
+            print(f"  Attempt {attempt} of {attempts} to download {name} failed: {e}")
+            if os.path.exists(destination):
+                os.remove(destination)
+            if attempt == attempts:
+                shutil.rmtree(name, onerror=remove_readonly)
+                print(f"ERROR: failed to download {url}")
+                exit(1)
+            time.sleep(5 * attempt)
     decompress(name, filename)
 
 

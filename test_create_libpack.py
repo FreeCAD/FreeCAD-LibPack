@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # SPDX-FileNotice: Part of the FreeCAD project.
 
+import contextlib
 import os
 import shutil
 from subprocess import CalledProcessError
@@ -9,8 +10,42 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch, mock_open
 
+import requests
+
 import create_libpack
 from compile_all import BuildMode
+
+
+@contextlib.contextmanager
+def in_directory(path: str):
+    original = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(original)
+
+
+class FakeResponse:
+    """Stands in for the streaming response returned by requests.get."""
+
+    def __init__(self, payload: bytes, content_length: str = None):
+        self.payload = payload
+        length = str(len(payload)) if content_length is None else content_length
+        self.headers = {"Content-Length": length}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_content(self, chunk_size: int = 1):
+        for start in range(0, len(self.payload), chunk_size):
+            yield self.payload[start : start + chunk_size]
 
 
 class TestDeleteExisting(unittest.TestCase):
@@ -126,7 +161,8 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test3", "git-repo": "test3_repo", "git-ref": "test3_ref"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         self.assertEqual(mock_clone.call_count, 3)
 
     @patch("builtins.print")
@@ -145,7 +181,8 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test1", "git-repo": "test1_repo"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         mock_clone.assert_called_once_with("test1", "test1_repo", None, None)
 
     @patch("create_libpack.clone")
@@ -156,7 +193,8 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test1"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         mock_clone.assert_not_called()
 
     @patch("create_libpack.clone")
@@ -174,7 +212,8 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 }
             ]
         }
-        create_libpack.fetch_remote_data(test_config, BuildMode.DEBUG)
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.DEBUG)
         clone_mock.assert_called_once_with("hybrid", "hybrid_repo", "hybrid_ref", None)
         download_mock.assert_not_called()
 
@@ -193,7 +232,8 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 }
             ]
         }
-        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         download_mock.assert_called_once_with("hybrid", "https://example.com/prebuilt.zip")
         clone_mock.assert_not_called()
 
@@ -254,7 +294,11 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         with self.assertRaises(SystemExit):
             create_libpack.clone("some_name", "https://some.url")
 
-    @patch("os.path.exists", MagicMock(return_value=True))
+    def _populate(self, name: str):
+        os.makedirs(os.path.join(self.temp_dir.name, name))
+        with open(os.path.join(self.temp_dir.name, name, "some_file"), "w", encoding="utf-8") as f:
+            f.write("contents")
+
     @patch("create_libpack.clone")
     def test_skips_existing_paths_with_flag(self, clone_mock: MagicMock):
         test_config = {
@@ -264,23 +308,125 @@ class TestRemoteFetchFunctions(unittest.TestCase):
                 {"name": "test3", "git-repo": "test3_repo", "git-ref": "test3_ref"},
             ]
         }
-        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE, skip_existing=True)
+        for item in test_config["content"]:
+            self._populate(item["name"])
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE, skip_existing=True)
         clone_mock.assert_not_called()
+
+    @patch("create_libpack.clone")
+    def test_interrupted_fetch_is_retried(self, clone_mock: MagicMock):
+        """A fetch directory left behind by an attempt that never finished is discarded
+        and fetched again, rather than being mistaken for a completed fetch."""
+        test_config = {"content": [{"name": "test1", "git-repo": "test1_repo"}]}
+        self._populate("test1")
+        marker = os.path.join(self.temp_dir.name, create_libpack._fetch_marker_path("test1"))
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("test1")
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE, skip_existing=True)
+        clone_mock.assert_called_once()
+        self.assertFalse(os.path.exists(os.path.join(self.temp_dir.name, "test1")))
+
+    @patch("create_libpack.download")
+    def test_empty_download_directory_is_retried(self, download_mock: MagicMock):
+        """A download that created its directory and then failed leaves an empty
+        directory, which must not satisfy the skip-existing check."""
+        test_config = {"content": [{"name": "test1", "url": "https://some.url/test.7z"}]}
+        os.makedirs(os.path.join(self.temp_dir.name, "test1"))
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE, skip_existing=True)
+        download_mock.assert_called_once()
+
+    @patch("create_libpack.clone")
+    def test_empty_directory_is_kept_when_nothing_is_fetched(self, clone_mock: MagicMock):
+        """Entries handled elsewhere, by pip for example, legitimately own an empty
+        directory, so emptiness alone does not force a re-fetch."""
+        test_config = {"content": [{"name": "test1"}]}
+        os.makedirs(os.path.join(self.temp_dir.name, "test1"))
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE, skip_existing=True)
+        clone_mock.assert_not_called()
+
+    @patch("create_libpack.clone")
+    def test_marker_is_cleared_by_a_successful_fetch(self, _):
+        test_config = {"content": [{"name": "test1", "git-repo": "test1_repo"}]}
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        marker = os.path.join(self.temp_dir.name, create_libpack._fetch_marker_path("test1"))
+        self.assertFalse(os.path.exists(marker))
+
+    @patch("create_libpack.clone")
+    def test_marker_survives_a_failed_fetch(self, clone_mock: MagicMock):
+        clone_mock.side_effect = SystemExit(1)
+        test_config = {"content": [{"name": "test1", "git-repo": "test1_repo"}]}
+        with in_directory(self.temp_dir.name):
+            with self.assertRaises(SystemExit):
+                create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        marker = os.path.join(self.temp_dir.name, create_libpack._fetch_marker_path("test1"))
+        self.assertTrue(os.path.exists(marker))
 
     @patch("create_libpack.download")
     def test_url_calls_download(self, download_mock: MagicMock):
         test_config = {"content": [{"name": "test", "url": "https://some.url"}]}
-        create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
+        with in_directory(self.temp_dir.name):
+            create_libpack.fetch_remote_data(test_config, BuildMode.RELEASE)
         download_mock.assert_called_once()
 
-    @patch("os.mkdir")  # Patch so it doesn't actually make a directory
-    @patch("requests.get")  # Patch so no network request is made
-    @patch("create_libpack.decompress")  # Patch so no attempt is made to decompress
-    def test_download_creates_file(self, decompress_mock: MagicMock, _1, _2):
-        with patch("builtins.open", mock_open()) as open_mock:
+    @patch("requests.get")
+    @patch("create_libpack.decompress")
+    def test_download_creates_file(self, decompress_mock: MagicMock, get_mock: MagicMock):
+        get_mock.return_value = FakeResponse(b"payload")
+        with in_directory(self.temp_dir.name):
             create_libpack.download("make_this_dir", "https://some.url/test.7z")
-            open_mock.assert_called_once_with(os.path.join("make_this_dir", "test.7z"), "wb")
+            with open(os.path.join("make_this_dir", "test.7z"), "rb") as f:
+                self.assertEqual(f.read(), b"payload")
         decompress_mock.assert_called_once_with("make_this_dir", "test.7z")
+
+    @patch("time.sleep", MagicMock())
+    @patch("builtins.print", MagicMock())
+    @patch("requests.get")
+    @patch("create_libpack.decompress")
+    def test_download_retries_a_failed_transfer(
+        self, decompress_mock: MagicMock, get_mock: MagicMock
+    ):
+        get_mock.side_effect = [
+            requests.ConnectionError("no route to host"),
+            FakeResponse(b"payload"),
+        ]
+        with in_directory(self.temp_dir.name):
+            create_libpack.download("make_this_dir", "https://some.url/test.7z")
+        self.assertEqual(get_mock.call_count, 2)
+        decompress_mock.assert_called_once_with("make_this_dir", "test.7z")
+
+    @patch("time.sleep", MagicMock())
+    @patch("builtins.print", MagicMock())
+    @patch("requests.get")
+    @patch("create_libpack.decompress")
+    def test_truncated_download_is_not_decompressed(
+        self, decompress_mock: MagicMock, get_mock: MagicMock
+    ):
+        """A transfer that ends early must not be handed to the decompressor, and must
+        not leave a directory behind for a later run to mistake for a good download."""
+        get_mock.return_value = FakeResponse(b"payload", content_length="9999")
+        with in_directory(self.temp_dir.name):
+            with self.assertRaises(SystemExit):
+                create_libpack.download("make_this_dir", "https://some.url/test.7z")
+            self.assertFalse(os.path.exists("make_this_dir"))
+        decompress_mock.assert_not_called()
+
+    @patch("requests.get")
+    @patch("create_libpack.decompress")
+    def test_download_discards_a_stale_directory(self, _, get_mock: MagicMock):
+        """Assets left over from a previous attempt are removed before the retry, so a
+        partial archive cannot end up alongside the fresh one."""
+        get_mock.return_value = FakeResponse(b"payload")
+        with in_directory(self.temp_dir.name):
+            os.makedirs("make_this_dir")
+            with open(os.path.join("make_this_dir", "partial.7z"), "wb") as f:
+                f.write(b"junk")
+            create_libpack.download("make_this_dir", "https://some.url/test.7z")
+            self.assertEqual(sorted(os.listdir("make_this_dir")), ["test.7z"])
 
     @patch("os.chdir")
     @patch("subprocess.run")
