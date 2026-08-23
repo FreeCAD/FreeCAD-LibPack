@@ -76,8 +76,9 @@ _DEBUG_BUILD_FROM_SOURCE = (
     "pydantic_core",
     "watchfiles",
     "lxml",
-    # Force pure-Python mypy (its wheels are mypyc-compiled, won't load under python_d).
-    # Keep the pin at 1.18.2; newer mypy needs the compiled-only librt.Let's w
+    # Force pure-Python mypy; its release wheels are mypyc-compiled and will not load under
+    # python_d. Keep the pin at 1.18.2, because 1.19.0 added a hard dependency on librt and
+    # 2.x additionally requires ast-serialize, neither of which ships a pure-Python wheel.
     "mypy",
 )
 
