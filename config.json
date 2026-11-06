@@ -1,6 +1,6 @@
 {
     "FreeCAD-version":"26.3.0",
-    "LibPack-version":"3.5.5",
+    "LibPack-version":"3.5.6",
     "content": [
         {
             "name":"libiconv",
@@ -54,13 +54,13 @@
         {
             "name":"python",
             "git-repo":"https://github.com/python/cpython.git",
-            "git-ref":"v3.14.7",
+            "git-ref":"v3.14.10",
             "requirements": [
                 "annotated-types==0.8.0",
                 "anyio==4.14.2",
                 "attrs==23.2.0",
                 "av==18.0.0",
-                "certifi==2026.7.22",
+                "certifi==2026.10.23",
                 "charset-normalizer==3.4.9",
                 "click==8.4.2",
                 "cmake==4.4.2",
