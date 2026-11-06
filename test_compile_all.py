@@ -26,6 +26,37 @@ class TestCompileAll(unittest.TestCase):
         os.chdir(self.original_dir)
         super().tearDown()
 
+    def test_default_generator_args_uses_configured_generator(self):
+        """Without an explicit generator, the configured one is passed to CMake."""
+        self.compiler.cmake_generator = "Visual Studio 17 2022"
+        self.assertEqual(
+            self.compiler._default_generator_args(["-D FOO=BAR"]),
+            ["-G", "Visual Studio 17 2022"],
+        )
+        self.assertEqual(
+            self.compiler._default_generator_args(None),
+            ["-G", "Visual Studio 17 2022"],
+        )
+
+    def test_default_generator_args_respects_explicit_generator(self):
+        """A package that selects its own generator, such as Ninja, keeps that choice."""
+        self.compiler.cmake_generator = "Visual Studio 17 2022"
+        self.assertEqual(self.compiler._default_generator_args(["-G", "Ninja"]), [])
+        self.assertEqual(self.compiler._default_generator_args(["-GNinja"]), [])
+
+    def test_default_generator_args_without_configured_generator(self):
+        """With no configured generator the choice is left to CMake."""
+        self.assertEqual(self.compiler._default_generator_args(["-D FOO=BAR"]), [])
+
+    @patch("compile_all.Compiler._run_cmake")
+    @patch("compile_all.Compiler.get_cmake_options", return_value=[])
+    def test_cmake_configure_passes_configured_generator(self, _, run_cmake_mock: MagicMock):
+        """Configuring a package passes the configured generator through to CMake."""
+        self.compiler.cmake_generator = "Visual Studio 17 2022"
+        self.compiler._cmake_configure(["-D FOO=BAR"])
+        options = run_cmake_mock.call_args[0][0]
+        self.assertEqual(options[options.index("-G") + 1], "Visual Studio 17 2022")
+
     @patch("os.chdir")
     @patch("compile_all.Compiler.build_nonexistent")
     def test_compile_all_calls_build_function(self, nonexistent_mock: MagicMock, _):

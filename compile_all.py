@@ -299,6 +299,9 @@ class Compiler:
         # MSBuild falls back to the newest installed compiler regardless of what the
         # environment or -vcvars_ver requested.
         self.msvc_tools_version = None
+        # CMake's default Visual Studio generator is the newest installed version, regardless
+        # of the environment that vcvars sets up, so the choice must be passed explicitly.
+        self.cmake_generator = None
         self.mode = mode
         self.strict_mode = True
 
@@ -1361,10 +1364,20 @@ class Compiler:
                 return ["-A ARM64"] if "Visual Studio" in generator else []
         return ["-A ARM64"]
 
+    def _default_generator_args(self, generator_args: List[str]) -> List[str]:
+        """Return the arguments selecting the configured CMake generator, or an empty list
+        when the caller already chose one or none is configured."""
+        if not self.cmake_generator:
+            return []
+        if any(arg.startswith("-G") for arg in generator_args or []):
+            return []
+        return ["-G", self.cmake_generator]
+
     def _cmake_configure(self, extra_args: List[str] = None):
         options = self.get_cmake_options()
         if extra_args:
             options.extend(extra_args)
+        options.extend(self._default_generator_args(extra_args))
         options.extend(self._arm64_platform_flag(extra_args))
         options.append(
             ".."
