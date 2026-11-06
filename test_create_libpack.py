@@ -277,6 +277,28 @@ class TestRemoteFetchFunctions(unittest.TestCase):
         idx = args.index("-version")
         self.assertEqual(args[idx + 1], "[16.0,17.0)")
 
+    def test_build_vswhere_args_requested_property(self):
+        """The queried vswhere property can be overridden, defaulting to the install path."""
+        default_args = create_libpack.build_vswhere_args("2022")
+        self.assertEqual(default_args[default_args.index("-property") + 1], "installationPath")
+        args = create_libpack.build_vswhere_args("2022", "installationVersion")
+        self.assertEqual(args[args.index("-property") + 1], "installationVersion")
+
+    def test_cmake_generator_for_vs_version(self):
+        """The generator follows the major version of the selected Visual Studio install."""
+        self.assertEqual(
+            create_libpack.cmake_generator_for_vs_version("17.14.36408.4\n"),
+            "Visual Studio 17 2022",
+        )
+        self.assertEqual(
+            create_libpack.cmake_generator_for_vs_version("18.0.11111.16"),
+            "Visual Studio 18 2026",
+        )
+
+    def test_cmake_generator_for_unknown_vs_version(self):
+        """An unrecognized major version yields None so that the caller can refuse to build."""
+        self.assertIsNone(create_libpack.cmake_generator_for_vs_version("16.11.0.0"))
+
     @patch("os.chdir")
     @patch("subprocess.run")
     def test_clone_qt_skips_submodule_init(self, run_mock: MagicMock, _):

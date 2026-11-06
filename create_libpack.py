@@ -413,6 +413,11 @@ VS_VERSION_RANGES = {
     "2026": "[18.0,19.0)",
 }
 
+CMAKE_GENERATORS_BY_VS_MAJOR_VERSION = {
+    "17": "Visual Studio 17 2022",
+    "18": "Visual Studio 18 2026",
+}
+
 
 def list_msvc_tools_versions(vs_install_path: str) -> list:
     """Return the names of MSVC tools directories that contain a working compiler. Used
@@ -469,7 +474,14 @@ def resolve_msvc_tools_version(vs_install_path: str, requested: str) -> str:
     return matches[0]
 
 
-def build_vswhere_args(vs_version: str) -> list:
+def cmake_generator_for_vs_version(installation_version: str) -> str:
+    """Return the CMake generator matching a Visual Studio installation version such as
+    '17.14.36408.4', or None if this script does not know that major version."""
+    major_version = installation_version.strip().split(".")[0]
+    return CMAKE_GENERATORS_BY_VS_MAJOR_VERSION.get(major_version)
+
+
+def build_vswhere_args(vs_version: str, vs_property: str = "installationPath") -> list:
     """Build the vswhere command line for the requested Visual Studio selection. The
     'latest' value selects whatever vswhere considers newest. Nicer aliases like
     '2022' and '2026' translate to vswhere's -version range syntax. Any other value is
@@ -482,7 +494,7 @@ def build_vswhere_args(vs_version: str) -> list:
         "-requires",
         "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",  # Dirty lie, works on ARM too
         "-property",
-        "installationPath",
+        vs_property,
     ]
     if vs_version == "latest":
         return [vswhere, "-latest"] + base[1:]
@@ -693,6 +705,19 @@ if __name__ == "__main__":
             print(
                 f"ERROR: vswhere returned no Visual Studio installation matching "
                 f"--vs-version={args['vs_version']!r}"
+            )
+            exit(1)
+
+        vs_installation_version = subprocess.check_output(
+            build_vswhere_args(args["vs_version"], "installationVersion"),
+            text=True,
+        )
+        compiler.cmake_generator = cmake_generator_for_vs_version(vs_installation_version)
+        if not compiler.cmake_generator:
+            print(
+                f"ERROR: No CMake generator is known for Visual Studio version "
+                f"{vs_installation_version.strip()!r}. Add it to "
+                "CMAKE_GENERATORS_BY_VS_MAJOR_VERSION."
             )
             exit(1)
 
