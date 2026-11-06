@@ -163,7 +163,7 @@
         {
             "name":"swig",
             "git-repo":"https://github.com/swig/swig.git",
-            "git-tag":"v4.4.1"
+            "git-ref":"v4.4.1"
         },
         {
             "name":"libclang",
