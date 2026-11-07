@@ -299,6 +299,12 @@ class Compiler:
         # MSBuild falls back to the newest installed compiler regardless of what the
         # environment or -vcvars_ver requested.
         self.msvc_tools_version = None
+        # PlatformToolset matching msvc_tools_version, for example "v143".
+        self.msvc_platform_toolset = None
+        # Value for CMake's -T option. The Visual Studio generators resolve the compiler through
+        # MSBuild and ignore the environment that vcvars sets up, so -vcvars_ver alone does not
+        # reach them.
+        self.cmake_toolset = None
         # CMake's default Visual Studio generator is the newest installed version, regardless
         # of the environment that vcvars sets up, so the choice must be passed explicitly.
         self.cmake_generator = None
@@ -1091,6 +1097,13 @@ class Compiler:
                 existing_cl = env.get("CL", "").strip()
                 env["CL"] = ("/Gy " + existing_cl).strip() if existing_cl else "/Gy"
             call_args = [*self.init_script, "&", *pip_args]
+        elif sys.platform.startswith("win32"):
+            # Packages without a matching wheel compile from sdist in Release too, and setuptools
+            # would otherwise auto-detect the newest installed compiler.
+            env = os.environ.copy()
+            env["DISTUTILS_USE_SDK"] = "1"
+            env["MSSdk"] = "1"
+            call_args = [*self.init_script, "&", *pip_args]
         else:
             env = None
             call_args = pip_args
@@ -1355,14 +1368,21 @@ class Compiler:
         selector."""
         if not (sys.platform.startswith("win32") and platform.machine() == "ARM64"):
             return []
+        generator = self._explicit_generator(generator_args)
+        if generator is None or "Visual Studio" in generator:
+            return ["-A ARM64"]
+        return []
+
+    @staticmethod
+    def _explicit_generator(generator_args: List[str]) -> Optional[str]:
+        """Return the generator named in generator_args, or None if it names none."""
         args = generator_args or []
         for index, arg in enumerate(args):
             if arg == "-G" and index + 1 < len(args):
-                return ["-A ARM64"] if "Visual Studio" in args[index + 1] else []
+                return args[index + 1]
             if arg.startswith("-G") and arg != "-G":
-                generator = arg[2:].lstrip("=").strip()
-                return ["-A ARM64"] if "Visual Studio" in generator else []
-        return ["-A ARM64"]
+                return arg[2:].lstrip("=").strip()
+        return None
 
     def _default_generator_args(self, generator_args: List[str]) -> List[str]:
         """Return the arguments selecting the configured CMake generator, or an empty list
@@ -1373,11 +1393,29 @@ class Compiler:
             return []
         return ["-G", self.cmake_generator]
 
+    def _toolset_args(self, generator_args: List[str]) -> List[str]:
+        """Return the arguments selecting the configured MSVC toolset. Only the Visual Studio
+        generators accept them; generators such as Ninja use the compiler vcvars put on PATH."""
+        generator = self._explicit_generator(generator_args) or self.cmake_generator
+        if not self.cmake_toolset or not generator or "Visual Studio" not in generator:
+            return []
+        return ["-T", self.cmake_toolset]
+
+    def _msbuild_toolset_args(self) -> List[str]:
+        """Return the properties that pin a direct msbuild invocation to the requested tools."""
+        if not self.msvc_tools_version:
+            return []
+        return [
+            f"/p:PlatformToolset={self.msvc_platform_toolset}",
+            f"/p:VCToolsVersion={self.msvc_tools_version}",
+        ]
+
     def _cmake_configure(self, extra_args: List[str] = None):
         options = self.get_cmake_options()
         if extra_args:
             options.extend(extra_args)
         options.extend(self._default_generator_args(extra_args))
+        options.extend(self._toolset_args(extra_args))
         options.extend(self._arm64_platform_flag(extra_args))
         options.append(
             ".."
@@ -2011,6 +2049,7 @@ class Compiler:
                 f"/p:Platform={arch}",
                 f"/p:WindowsTargetPlatformVersion={target}",
                 "/p:SkipUWP=true",
+                *self._msbuild_toolset_args(),
                 "allinone.sln",
             ]
             try:

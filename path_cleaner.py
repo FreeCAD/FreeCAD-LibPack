@@ -9,7 +9,8 @@
 import os
 import re
 import shutil
-from typing import Dict, List
+import struct
+from typing import Dict, List, Optional, Tuple
 
 paths_to_delete = [
     "custom_vc14_64.bat",
@@ -21,6 +22,12 @@ paths_to_delete = [
     "RELEASE.txt",
     "samples",
 ]
+
+
+_REDISTRIBUTABLE_RUNTIME_RE = re.compile(
+    r"(concrt|msvcp|ucrtbase|vccorlib|vcomp|vcruntime)", re.IGNORECASE
+)
+_LOCALLY_COMPILED_SITE_PACKAGES = {"opencamlib", "PySide6", "shiboken6", "vtkmodules"}
 
 
 def delete_extraneous_files(base_path: str) -> None:
@@ -517,6 +524,58 @@ def move_pdbs_to_sidecar(base_path: str, sidecar_path: str) -> int:
                 print(f"Failed to move {full_path} to {dest}: {e}")
     print(f"  Moved {moved} PDB files")
     return moved
+
+
+def read_linker_version(path: str) -> Optional[Tuple[int, int]]:
+    """Return the (major, minor) linker version recorded in a PE file's optional header, or
+    None if the file is not a PE image."""
+    with open(path, "rb") as f:
+        dos_header = f.read(64)
+        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+            return None
+        f.seek(struct.unpack_from("<I", dos_header, 60)[0])
+        pe_header = f.read(28)
+    if len(pe_header) < 28 or pe_header[:4] != b"PE\0\0":
+        return None
+    return pe_header[26], pe_header[27]
+
+
+def _may_be_upstream_binary(relative_path: str) -> bool:
+    parts = relative_path.replace("\\", "/").split("/")
+    if parts[:2] == ["bin", "Scripts"]:
+        return True
+    if "site-packages" not in parts:
+        return False
+    top_level = parts[parts.index("site-packages") + 1]
+    return top_level not in _LOCALLY_COMPILED_SITE_PACKAGES
+
+
+def find_binaries_newer_than(base_path: str, tools_version: str) -> Tuple[List[str], List[str]]:
+    """Find PE binaries linked with tools newer than tools_version, such as '14.44.35207'.
+
+    Returns (violations, unverified) as paths relative to base_path. Violations are binaries
+    this build compiled. Unverified binaries sit where pip installs upstream wheels, whose
+    toolchain the LibPack does not control. Microsoft's redistributable runtime DLLs are
+    skipped because they are copied in rather than compiled."""
+    limit = tuple(int(part) for part in tools_version.split(".")[:2])
+    violations: List[str] = []
+    unverified: List[str] = []
+    for root, _dirs, files in os.walk(base_path):
+        for name in files:
+            if not name.lower().endswith((".dll", ".exe", ".pyd")):
+                continue
+            if _REDISTRIBUTABLE_RUNTIME_RE.match(name):
+                continue
+            path = os.path.join(root, name)
+            version = read_linker_version(path)
+            if version is None or version <= limit:
+                continue
+            relative_path = os.path.relpath(path, base_path)
+            if _may_be_upstream_binary(relative_path):
+                unverified.append(relative_path)
+            else:
+                violations.append(relative_path)
+    return sorted(violations), sorted(unverified)
 
 
 def delete_pdb_files(base_path: str) -> int:

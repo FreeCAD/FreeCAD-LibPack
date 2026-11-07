@@ -57,6 +57,61 @@ class TestCompileAll(unittest.TestCase):
         options = run_cmake_mock.call_args[0][0]
         self.assertEqual(options[options.index("-G") + 1], "Visual Studio 17 2022")
 
+    def test_toolset_args_apply_to_the_configured_visual_studio_generator(self):
+        """Without an explicit generator, the configured toolset accompanies the VS generator."""
+        self.compiler.cmake_generator = "Visual Studio 18 2026"
+        self.compiler.cmake_toolset = "v143,version=14.44.17.14"
+        self.assertEqual(
+            self.compiler._toolset_args(["-D FOO=BAR"]), ["-T", "v143,version=14.44.17.14"]
+        )
+
+    def test_toolset_args_are_omitted_for_ninja(self):
+        """Ninja rejects -T, and already uses the compiler selected by vcvars."""
+        self.compiler.cmake_generator = "Visual Studio 18 2026"
+        self.compiler.cmake_toolset = "v143,version=14.44.17.14"
+        self.assertEqual(self.compiler._toolset_args(["-G", "Ninja"]), [])
+        self.assertEqual(self.compiler._toolset_args(["-GNinja"]), [])
+
+    def test_toolset_args_without_configured_toolset(self):
+        """With no configured toolset the choice is left to CMake."""
+        self.compiler.cmake_generator = "Visual Studio 18 2026"
+        self.assertEqual(self.compiler._toolset_args(None), [])
+
+    @patch("compile_all.Compiler._run_cmake")
+    @patch("compile_all.Compiler.get_cmake_options", return_value=[])
+    def test_cmake_configure_passes_configured_toolset(self, _, run_cmake_mock: MagicMock):
+        """Configuring a package passes the configured toolset through to CMake."""
+        self.compiler.cmake_generator = "Visual Studio 18 2026"
+        self.compiler.cmake_toolset = "v143,version=14.44.17.14"
+        self.compiler._cmake_configure(["-D FOO=BAR"])
+        options = run_cmake_mock.call_args[0][0]
+        self.assertEqual(options[options.index("-T") + 1], "v143,version=14.44.17.14")
+
+    def test_msbuild_toolset_args(self):
+        """A direct msbuild invocation is pinned to the requested tools."""
+        self.compiler.msvc_platform_toolset = "v143"
+        self.compiler.msvc_tools_version = "14.44.35207"
+        self.assertEqual(
+            self.compiler._msbuild_toolset_args(),
+            ["/p:PlatformToolset=v143", "/p:VCToolsVersion=14.44.35207"],
+        )
+
+    def test_msbuild_toolset_args_without_requested_tools(self):
+        """Without a requested version msbuild keeps its default."""
+        self.assertEqual(self.compiler._msbuild_toolset_args(), [])
+
+    @patch("sys.platform", "win32")
+    @patch("compile_all.Compiler._run_streaming")
+    @patch("compile_all.Compiler.python_exe", return_value="python")
+    def test_release_pip_install_uses_the_requested_compiler(self, _, run_mock: MagicMock):
+        """Release sdist builds run under vcvars and trust that environment."""
+        self.compiler.mode = compile_all.BuildMode.RELEASE
+        self.compiler.init_script = ["vcvars.bat", "-vcvars_ver=14.4"]
+        self.compiler._run_pip_install(["pkg==1.0"], False, ())
+        args = run_mock.call_args[0][0]
+        self.assertEqual(args[:3], ["vcvars.bat", "-vcvars_ver=14.4", "&"])
+        self.assertEqual(run_mock.call_args[1]["env"]["DISTUTILS_USE_SDK"], "1")
+
     @patch("os.chdir")
     @patch("compile_all.Compiler.build_nonexistent")
     def test_compile_all_calls_build_function(self, nonexistent_mock: MagicMock, _):

@@ -62,7 +62,7 @@ Arguments:
 * `--7zip` -- Path to 7-zip executable if not in PATH
 * `--bison` -- Path to Bison executable if not in PATH
 * `--vs-version` -- Visual Studio toolchain to build with. Accepts `latest` (default), `2022`, `2026`, or a raw `vswhere` `-version` range such as `[17.0,18.0)`.
-* `--vcvars-ver` -- Optional MSVC toolset version to select inside the chosen Visual Studio installation, passed through to `vcvars64.bat` as `-vcvars_ver=VALUE`. Use this to build with the v143 (VS 2022) toolset from a VS 2026 installation, for example `--vcvars-ver=14.4`.
+* `--vcvars-ver` -- Optional MSVC toolset version to select inside the chosen Visual Studio installation, passed through to `vcvars64.bat` as `-vcvars_ver=VALUE`. Use this to build with the v143 (VS 2022) toolset from a VS 2026 installation, for example `--vcvars-ver=14.4`. The selection also applies to CMake's Visual Studio generators, the ICU build, and pip source builds, and the build stops before archiving if a binary it compiled was linked with newer tools.
 * `--fallback-build-dir` -- Override the fallback build directory used by Qt to avoid Windows path-length limits during its build. Replaces the value declared in `config.json` for the `qt` entry. Supply a short path on a drive that exists on this machine, for example `C:\temp`.
 
 ## License
