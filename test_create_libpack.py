@@ -4,6 +4,7 @@
 
 import contextlib
 import os
+from pathlib import Path
 import shutil
 from subprocess import CalledProcessError
 import tempfile
@@ -294,6 +295,47 @@ class TestRemoteFetchFunctions(unittest.TestCase):
             create_libpack.cmake_generator_for_vs_version("18.0.11111.16"),
             "Visual Studio 18 2026",
         )
+
+    def test_platform_toolset_for_tools_version(self):
+        """The PlatformToolset follows the minor version of the MSVC tools."""
+        self.assertEqual(create_libpack.platform_toolset_for_tools_version("14.29.30133"), "v142")
+        self.assertEqual(create_libpack.platform_toolset_for_tools_version("14.44.35207"), "v143")
+        self.assertEqual(create_libpack.platform_toolset_for_tools_version("14.51.36231"), "v145")
+        self.assertIsNone(create_libpack.platform_toolset_for_tools_version("14.60.0"))
+
+    def test_find_side_by_side_toolset_version(self):
+        """The side-by-side directory is identified by the tools version recorded inside it."""
+        with tempfile.TemporaryDirectory() as vs_path:
+            for name, contents in (("14.44.17.14", "14.44.35207\r\n"), ("14.51", "14.51.36231")):
+                directory = Path(vs_path) / "VC" / "Auxiliary" / "Build" / name
+                directory.mkdir(parents=True)
+                (directory / f"Microsoft.VCToolsVersion.{name}.txt").write_text(contents)
+            self.assertEqual(
+                create_libpack.find_side_by_side_toolset_version(vs_path, "14.44.35207"),
+                "14.44.17.14",
+            )
+            self.assertIsNone(
+                create_libpack.find_side_by_side_toolset_version(vs_path, "14.38.33130")
+            )
+
+    def test_cmake_toolset_argument(self):
+        """The version field is present only when a side-by-side toolset was found."""
+        self.assertEqual(
+            create_libpack.cmake_toolset_argument("v143", "14.44.17.14"),
+            "v143,version=14.44.17.14",
+        )
+        self.assertEqual(create_libpack.cmake_toolset_argument("v143"), "v143")
+
+    @patch("path_cleaner.find_binaries_newer_than", return_value=(["bin/a.dll"], []))
+    def test_enforce_msvc_tools_version_stops_on_violation(self, _):
+        """A locally compiled binary with newer tools stops the build before archiving."""
+        with self.assertRaises(SystemExit):
+            create_libpack.enforce_msvc_tools_version("libpack", "14.44.35207")
+
+    @patch("path_cleaner.find_binaries_newer_than", return_value=([], ["wheel/a.pyd"]))
+    def test_enforce_msvc_tools_version_tolerates_upstream_wheels(self, _):
+        """A binary that may come from an upstream wheel is only reported."""
+        create_libpack.enforce_msvc_tools_version("libpack", "14.44.35207")
 
     def test_cmake_generator_for_unknown_vs_version(self):
         """An unrecognized major version yields None so that the caller can refuse to build."""

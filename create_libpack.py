@@ -413,6 +413,12 @@ VS_VERSION_RANGES = {
     "2026": "[18.0,19.0)",
 }
 
+PLATFORM_TOOLSETS_BY_MSVC_MINOR_VERSION = (
+    (range(20, 30), "v142"),
+    (range(30, 50), "v143"),
+    (range(50, 60), "v145"),
+)
+
 CMAKE_GENERATORS_BY_VS_MAJOR_VERSION = {
     "17": "Visual Studio 17 2022",
     "18": "Visual Studio 18 2026",
@@ -472,6 +478,48 @@ def resolve_msvc_tools_version(vs_install_path: str, requested: str) -> str:
         return None
     matches.sort(key=lambda v: tuple(int(p) for p in v.split(".") if p.isdigit()), reverse=True)
     return matches[0]
+
+
+def platform_toolset_for_tools_version(tools_version: str) -> str:
+    """Return the MSBuild PlatformToolset for an MSVC tools version such as '14.44.35207', or
+    None if this script does not know that version."""
+    minor_version = int(tools_version.split(".")[1])
+    for minor_versions, toolset in PLATFORM_TOOLSETS_BY_MSVC_MINOR_VERSION:
+        if minor_version in minor_versions:
+            return toolset
+    return None
+
+
+def find_side_by_side_toolset_version(vs_install_path: str, tools_version: str) -> str:
+    """Return the name of the VC\\Auxiliary\\Build side-by-side directory that describes
+    tools_version, for example '14.44.17.14' for '14.44.35207'. CMake's -T version field takes
+    this name rather than the tools version. Returns None if no such directory exists."""
+    build_root = Path(vs_install_path) / "VC" / "Auxiliary" / "Build"
+    for version_file in build_root.glob("14.*/Microsoft.VCToolsVersion.*.txt"):
+        if version_file.read_text(encoding="utf-8").strip() == tools_version:
+            return version_file.parent.name
+    return None
+
+
+def cmake_toolset_argument(platform_toolset: str, side_by_side_version: str = None) -> str:
+    """Return the value for CMake's -T option."""
+    if side_by_side_version:
+        return f"{platform_toolset},version={side_by_side_version}"
+    return platform_toolset
+
+
+def enforce_msvc_tools_version(libpack_path: str, tools_version: str) -> None:
+    """Abort before archiving if a binary compiled by this build used newer tools than were
+    requested. Binaries that may be upstream wheels are reported but do not abort the build."""
+    print(f"Checking that compiled binaries do not exceed MSVC {tools_version}")
+    violations, unverified = path_cleaner.find_binaries_newer_than(libpack_path, tools_version)
+    for path in unverified:
+        print(f"  WARNING: newer linker version, possibly an upstream wheel: {path}")
+    if violations:
+        print(f"ERROR: {len(violations)} binaries were built with tools newer than requested:")
+        for path in violations:
+            print(f"  {path}")
+        exit(1)
 
 
 def cmake_generator_for_vs_version(installation_version: str) -> str:
@@ -745,6 +793,19 @@ if __name__ == "__main__":
                     f"{list_msvc_tools_versions(vs_install_path)}"
                 )
                 exit(1)
+            compiler.msvc_platform_toolset = platform_toolset_for_tools_version(
+                compiler.msvc_tools_version
+            )
+            if not compiler.msvc_platform_toolset:
+                print(
+                    f"ERROR: No PlatformToolset is known for MSVC {compiler.msvc_tools_version}. "
+                    "Add it to PLATFORM_TOOLSETS_BY_MSVC_MINOR_VERSION."
+                )
+                exit(1)
+            compiler.cmake_toolset = cmake_toolset_argument(
+                compiler.msvc_platform_toolset,
+                find_side_by_side_toolset_version(vs_install_path, compiler.msvc_tools_version),
+            )
         else:
             compiler.init_script = [init_bat]
         # Ignore the per-user site-packages, which the LibPack's Python shares with any
@@ -782,6 +843,8 @@ if __name__ == "__main__":
             path_cleaner.move_pdbs_to_sidecar(base_path, pdb_sidecar_path)
 
         write_manifest(config_dict, mode)
+        if compiler.msvc_tools_version:
+            enforce_msvc_tools_version(base_path, compiler.msvc_tools_version)
 
         if args["archive"]:
             create_archive(base_path)

@@ -725,5 +725,57 @@ class TestDeletePythonTestSuites(unittest.TestCase):
         self.assertEqual(path_cleaner.delete_python_test_suites(self.base_dir), 0)
 
 
+class TestFindBinariesNewerThan(unittest.TestCase):
+    def setUp(self) -> None:
+        self.base_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.base_dir)
+
+    def _write_pe(self, relative_path: str, minor_version: int) -> None:
+        path = os.path.join(self.base_dir, *relative_path.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        dos_header = b"MZ" + bytes(58) + (64).to_bytes(4, "little")
+        pe_header = b"PE\0\0" + bytes(22) + bytes([14, minor_version])
+        with open(path, "wb") as f:
+            f.write(dos_header + pe_header)
+
+    def test_reads_linker_version(self):
+        self._write_pe("bin/a.dll", 44)
+        version = path_cleaner.read_linker_version(os.path.join(self.base_dir, "bin", "a.dll"))
+        self.assertEqual(version, (14, 44))
+
+    def test_non_pe_file_has_no_linker_version(self):
+        path = os.path.join(self.base_dir, "fake.dll")
+        with open(path, "wb") as f:
+            f.write(b"not a binary")
+        self.assertIsNone(path_cleaner.read_linker_version(path))
+
+    def test_locally_compiled_binary_is_a_violation(self):
+        self._write_pe("bin/TKernel.dll", 51)
+        self._write_pe("bin/Lib/site-packages/vtkmodules/vtkCommon.pyd", 51)
+        violations, unverified = path_cleaner.find_binaries_newer_than(self.base_dir, "14.44.35207")
+        self.assertEqual(len(violations), 2)
+        self.assertEqual(unverified, [])
+
+    def test_matching_and_older_binaries_pass(self):
+        self._write_pe("bin/Qt6Core.dll", 44)
+        self._write_pe("bin/libffi-8.dll", 34)
+        self.assertEqual(
+            path_cleaner.find_binaries_newer_than(self.base_dir, "14.44.35207"), ([], [])
+        )
+
+    def test_possible_upstream_wheels_are_only_unverified(self):
+        self._write_pe("bin/Lib/site-packages/regex/_regex.pyd", 51)
+        self._write_pe("bin/Scripts/maturin.exe", 51)
+        violations, unverified = path_cleaner.find_binaries_newer_than(self.base_dir, "14.44.35207")
+        self.assertEqual(violations, [])
+        self.assertEqual(len(unverified), 2)
+
+    def test_redistributable_runtime_is_skipped(self):
+        self._write_pe("bin/vcruntime140.dll", 50)
+        self.assertEqual(
+            path_cleaner.find_binaries_newer_than(self.base_dir, "14.44.35207"), ([], [])
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
